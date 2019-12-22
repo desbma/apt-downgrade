@@ -14,11 +14,13 @@ struct CLArgs {
     package_name: String,
 
     package_version: String,
+
+    dry_run: bool
 }
 
 
 /// A versioned package
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 struct Package {
     name: String,
 
@@ -41,7 +43,7 @@ enum PackageVersionRelation {
 struct PackageDependency {
     package: Package,
 
-    relation: PackageVersionRelation,
+    version_relation: PackageVersionRelation,
 }
 
 
@@ -83,23 +85,29 @@ fn parse_cl_args() -> CLArgs {
                 .required(true)
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("DRY_RUN")
+                .short("d")
+                .long("dry-run")
+                .help("Only display install command, but do not install anything"),
+        )
         .get_matches();
 
     // Post Clap parsing
     let package_name = matches.value_of("PACKAGE_NAME").unwrap().to_string();
     let package_version = matches.value_of("PACKAGE_VERSION").unwrap().to_string();
-
-    // TODO dry run option
+    let dry_run = !matches.is_present("DRY_RUN");
 
     CLArgs {
         package_name,
         package_version,
+        dry_run
     }
 }
 
 
-fn get_dependencies_cache(package: &Package) -> Result<VecDeque<Package>, Box<dyn error::Error>> {
-    let deps = VecDeque::new();
+fn get_dependencies_cache(package: &Package) -> Result<VecDeque<PackageDependency>, Box<dyn error::Error>> {
+    let mut deps = VecDeque::new();
 
     let output = Command::new("apt-cache")
         .args(vec![
@@ -125,7 +133,7 @@ fn get_dependencies_cache(package: &Package) -> Result<VecDeque<Package>, Box<dy
         .map(|l| l.trim_start())
     {
         let mut package_desc_tokens = package_desc.split(' ');
-        let package_name = &package_desc_tokens.next().unwrap();
+        let package_name = package_desc_tokens.next().unwrap().to_string();
         let package_version_relation_raw = &package_desc_tokens.next().unwrap()[1..];
         let package_version_relation = match package_version_relation_raw {
             "<<" => PackageVersionRelation::StrictlyInferior,
@@ -138,20 +146,26 @@ fn get_dependencies_cache(package: &Package) -> Result<VecDeque<Package>, Box<dy
             }
         };
         let package_version_raw = &package_desc_tokens.next().unwrap();
-        let package_version = &package_version_raw[0..&package_version_raw.len() - 1];
-        println!("{} {:?} {}", &package_name, &package_version_relation, &package_version);
+        let package_version = package_version_raw[0..&package_version_raw.len() - 1].to_string();
+        deps.push_back(PackageDependency {
+            package: Package {
+                name: package_name,
+                version: package_version
+            },
+            version_relation: package_version_relation
+        });
     }
 
     Ok(deps)
 }
 
 
-fn get_dependencies_remote(_package: &Package) -> Result<VecDeque<Package>, Box<dyn error::Error>> {
+fn get_dependencies_remote(_package: &Package) -> Result<VecDeque<PackageDependency>, Box<dyn error::Error>> {
     unimplemented!();
 }
 
 
-fn get_dependencies(package: Package) -> VecDeque<Package> {
+fn get_dependencies(package: Package) -> VecDeque<PackageDependency> {
     match get_dependencies_cache(&package) {
         Ok(deps) => deps,
         Err(e) => {
@@ -161,6 +175,16 @@ fn get_dependencies(package: Package) -> VecDeque<Package> {
                 e
             );
             get_dependencies_remote(&package).unwrap()
+        }
+    }
+}
+
+
+fn resolve_version(dependency: PackageDependency) -> Package {
+    match dependency.version_relation {
+        PackageVersionRelation::Equal => dependency.package,
+        _ => {
+            unimplemented!();
         }
     }
 }
@@ -176,31 +200,37 @@ fn main() {
     let cl_args = parse_cl_args();
 
     // Initial queue states
-    let mut to_resolve: VecDeque<Package> = VecDeque::new();
-    to_resolve.push_back(Package {
-        name: cl_args.package_name,
-        version: cl_args.package_version,
+    let mut to_resolve: VecDeque<PackageDependency> = VecDeque::new();
+    to_resolve.push_back(PackageDependency {
+        package: Package {
+            name: cl_args.package_name,
+            version: cl_args.package_version
+        },
+        version_relation: PackageVersionRelation::Equal
     });
     let mut to_install: VecDeque<Package> = VecDeque::new();
 
     // Resolve packages to install
-    while let Some(cur_package) = to_resolve.pop_front() {
-        println!("{:?}", cur_package);
+    while let Some(dependency) = to_resolve.pop_front() {
+        println!("{:?}", dependency);
+
+        // Resolve version
+        let package = resolve_version(dependency);
+
+        // Add to install queue
+        to_install.push_back(package.clone());
 
         // Get package dependencies
-        let deps = get_dependencies(cur_package);
-        for dep in deps {
-            println!("\t{:?}", dep);
-        }
-
-        // TODO if not in build package url
-
-        // TODO download deb (directories-rs cache)
-
-        // TODO get dep for deb
+        let mut deps = get_dependencies(package);
+        to_resolve.append(&mut deps);
     }
 
-    // TODO install all packages in to_install
+    // Install
     let install_cmdline = build_install_cmdline(to_install);
-    println!("Run:\n{}", install_cmdline);
+    if cl_args.dry_run {
+        println!("{}", install_cmdline);
+    }
+    else {
+        unimplemented!();
+    }
 }
