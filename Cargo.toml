@@ -1,0 +1,11 @@
+[package]
+name = "apt-downgrade"
+version = "0.1.0"
+authors = ["desbma <desbma@users.noreply.github.com>"]
+edition = "2018"
+
+[profile.release]
+panic = "abort"
+
+[dependencies]
+clap = "2"
