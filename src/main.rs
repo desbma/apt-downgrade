@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::io;
+use std::error;
 use std::io::BufRead;
 use std::process::{Command, Stdio};
 
@@ -42,7 +42,6 @@ fn parse_cl_args() -> CLArgs {
         .get_matches();
 
     // Post Clap parsing
-    // TODO handle errors !
     let package_name = matches.value_of("PACKAGE_NAME").unwrap().to_string();
     let package_version = matches.value_of("PACKAGE_VERSION").unwrap().to_string();
 
@@ -55,8 +54,7 @@ fn parse_cl_args() -> CLArgs {
 }
 
 
-fn get_dependencies_cache(package: &Package) -> Result<VecDeque<Package>, io::Error> {
-    // TODO better error type
+fn get_dependencies_cache(package: &Package) -> Result<VecDeque<Package>, Box<error::Error>> {
     let deps = VecDeque::new();
 
     let output = Command::new("apt-cache")
@@ -75,8 +73,7 @@ fn get_dependencies_cache(package: &Package) -> Result<VecDeque<Package>, io::Er
         .lines()
         .filter(|l| l.as_ref().unwrap().starts_with(let_line_prefix))
         .nth(0)
-        .unwrap()
-        .unwrap();
+        .unwrap()?;
     for package_desc in package_desc_line
         .split_at(let_line_prefix.len())
         .1
@@ -90,8 +87,7 @@ fn get_dependencies_cache(package: &Package) -> Result<VecDeque<Package>, io::Er
 }
 
 
-fn get_dependencies_remote(package: &Package) -> Result<VecDeque<Package>, io::Error> {
-    // TODO better error type
+fn get_dependencies_remote(package: &Package) -> Result<VecDeque<Package>, Box<error::Error>> {
     let deps = VecDeque::new();
 
     Ok(deps)
@@ -101,7 +97,14 @@ fn get_dependencies_remote(package: &Package) -> Result<VecDeque<Package>, io::E
 fn get_dependencies(package: Package) -> VecDeque<Package> {
     match get_dependencies_cache(&package) {
         Ok(deps) => deps,
-        Err(_) => get_dependencies_remote(&package).unwrap(),
+        Err(e) => {
+            println!(
+                "Failed to get dependencies for package {:?} from cache: {:?}",
+                package,
+                e
+            );
+            get_dependencies_remote(&package).unwrap()
+        }
     }
 }
 
