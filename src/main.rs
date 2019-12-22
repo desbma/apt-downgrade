@@ -7,7 +7,6 @@ use std::process::{Command, Stdio};
 
 use clap::{App, Arg};
 
-
 /// Parsed command line arguments
 #[derive(Clone)]
 struct CLArgs {
@@ -15,9 +14,8 @@ struct CLArgs {
 
     package_version: String,
 
-    dry_run: bool
+    dry_run: bool,
 }
-
 
 /// A versioned package
 #[derive(Clone, Debug)]
@@ -26,7 +24,6 @@ struct Package {
 
     version: String,
 }
-
 
 #[derive(Debug)]
 enum PackageVersionRelation {
@@ -38,7 +35,6 @@ enum PackageVersionRelation {
     StriclySuperior,
 }
 
-
 /// Package dependency
 #[derive(Debug)]
 struct PackageDependency {
@@ -47,29 +43,29 @@ struct PackageDependency {
     version_relation: PackageVersionRelation,
 }
 
-
 #[derive(Debug)]
 struct CommandError {
-    status:  std::process::ExitStatus
+    status: std::process::ExitStatus,
 }
 
-
-impl fmt::Display for CommandError  {
+impl fmt::Display for CommandError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.status.code() {
             Some(code) => write!(f, "Command returned {}", code),
-            None => write!(f, "Command killed by signal {}", self.status.signal().unwrap())
+            None => write!(
+                f,
+                "Command killed by signal {}",
+                self.status.signal().unwrap()
+            ),
         }
     }
 }
-
 
 impl error::Error for CommandError {
     fn source(&self) -> Option<&(dyn error::Error + 'static)> {
         None
     }
 }
-
 
 /// Parse and validate command line arguments
 fn parse_cl_args() -> CLArgs {
@@ -78,9 +74,11 @@ fn parse_cl_args() -> CLArgs {
         .version(env!("CARGO_PKG_VERSION"))
         .about("Downgrade debian packages and their dependencies")
         .author("desbma")
-        .arg(Arg::with_name("PACKAGE_NAME").required(true).takes_value(
-            true,
-        ))
+        .arg(
+            Arg::with_name("PACKAGE_NAME")
+                .required(true)
+                .takes_value(true),
+        )
         .arg(
             Arg::with_name("PACKAGE_VERSION")
                 .required(true)
@@ -102,12 +100,13 @@ fn parse_cl_args() -> CLArgs {
     CLArgs {
         package_name,
         package_version,
-        dry_run
+        dry_run,
     }
 }
 
-
-fn get_dependencies_cache(package: &Package) -> Result<VecDeque<PackageDependency>, Box<dyn error::Error>> {
+fn get_dependencies_cache(
+    package: &Package,
+) -> Result<VecDeque<PackageDependency>, Box<dyn error::Error>> {
     let mut deps = VecDeque::new();
 
     let output = Command::new("apt-cache")
@@ -118,7 +117,9 @@ fn get_dependencies_cache(package: &Package) -> Result<VecDeque<PackageDependenc
         .stderr(Stdio::null())
         .output()?;
     if !output.status.success() {
-       return Err(Box::new(CommandError {status: output.status}));
+        return Err(Box::new(CommandError {
+            status: output.status,
+        }));
     }
     let let_line_prefix = "Depends: ";
     let package_desc_line = output
@@ -146,8 +147,8 @@ fn get_dependencies_cache(package: &Package) -> Result<VecDeque<PackageDependenc
                 r => {
                     panic!("Unexpected version relation: {}", r);
                 }
-            }
-            None => PackageVersionRelation::Any
+            },
+            None => PackageVersionRelation::Any,
         };
         let package_version: String = match package_version_relation {
             PackageVersionRelation::Any => "".to_string(),
@@ -160,20 +161,20 @@ fn get_dependencies_cache(package: &Package) -> Result<VecDeque<PackageDependenc
         deps.push_back(PackageDependency {
             package: Package {
                 name: package_name,
-                version: package_version
+                version: package_version,
             },
-            version_relation: package_version_relation
+            version_relation: package_version_relation,
         });
     }
 
     Ok(deps)
 }
 
-
-fn get_dependencies_remote(_package: &Package) -> Result<VecDeque<PackageDependency>, Box<dyn error::Error>> {
+fn get_dependencies_remote(
+    _package: &Package,
+) -> Result<VecDeque<PackageDependency>, Box<dyn error::Error>> {
     unimplemented!();
 }
-
 
 fn get_dependencies(package: Package) -> VecDeque<PackageDependency> {
     match get_dependencies_cache(&package) {
@@ -181,14 +182,12 @@ fn get_dependencies(package: Package) -> VecDeque<PackageDependency> {
         Err(e) => {
             println!(
                 "Failed to get dependencies for package {:?} from cache: {:?}",
-                package,
-                e
+                package, e
             );
             get_dependencies_remote(&package).unwrap()
         }
     }
 }
-
 
 fn resolve_version(dependency: PackageDependency) -> Package {
     match dependency.version_relation {
@@ -199,11 +198,9 @@ fn resolve_version(dependency: PackageDependency) -> Package {
     }
 }
 
-
 fn build_install_cmdline(_packages: VecDeque<Package>) -> String {
     unimplemented!();
 }
-
 
 fn main() {
     // Parse args
@@ -214,9 +211,9 @@ fn main() {
     to_resolve.push_back(PackageDependency {
         package: Package {
             name: cl_args.package_name,
-            version: cl_args.package_version
+            version: cl_args.package_version,
         },
-        version_relation: PackageVersionRelation::Equal
+        version_relation: PackageVersionRelation::Equal,
     });
     let mut to_install: VecDeque<Package> = VecDeque::new();
 
@@ -239,8 +236,7 @@ fn main() {
     let install_cmdline = build_install_cmdline(to_install);
     if cl_args.dry_run {
         println!("{}", install_cmdline);
-    }
-    else {
+    } else {
         unimplemented!();
     }
 }
