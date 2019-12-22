@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 use std::error;
+use std::fmt;
 use std::io::BufRead;
+use std::os::unix::process::ExitStatusExt;
 use std::process::{Command, Stdio};
 
 use clap::{App, Arg};
@@ -21,6 +23,48 @@ struct Package {
     name: String,
 
     version: String,
+}
+
+
+#[derive(Debug)]
+enum PackageVersionRelation {
+    StrictlyInferior,
+    InferiorOrEqual,
+    Equal,
+    SuperiorOrEqual,
+    StriclySuperior,
+}
+
+
+/// Package dependency
+#[derive(Debug)]
+struct PackageDependency {
+    package: Package,
+
+    relation: PackageVersionRelation,
+}
+
+
+#[derive(Debug)]
+struct CommandError {
+    status:  std::process::ExitStatus
+}
+
+
+impl fmt::Display for CommandError  {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.status.code() {
+            Some(code) => write!(f, "Command returned {}", code),
+            None => write!(f, "Command killed by signal {}", self.status.signal().unwrap())
+        }
+    }
+}
+
+
+impl error::Error for CommandError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        None
+    }
 }
 
 
@@ -64,9 +108,9 @@ fn get_dependencies_cache(package: &Package) -> Result<VecDeque<Package>, Box<dy
         ])
         .stderr(Stdio::null())
         .output()?;
-    //if !output.status.success() {
-    //    return Err(io::Error);
-    //}
+    if !output.status.success() {
+       return Err(Box::new(CommandError {status: output.status}));
+    }
     let let_line_prefix = "Depends: ";
     let package_desc_line = output
         .stdout
@@ -80,7 +124,22 @@ fn get_dependencies_cache(package: &Package) -> Result<VecDeque<Package>, Box<dy
         .split(',')
         .map(|l| l.trim_start())
     {
-        println!("{}", package_desc);
+        let mut package_desc_tokens = package_desc.split(' ');
+        let package_name = &package_desc_tokens.next().unwrap();
+        let package_version_relation_raw = &package_desc_tokens.next().unwrap()[1..];
+        let package_version_relation = match package_version_relation_raw {
+            "<<" => PackageVersionRelation::StrictlyInferior,
+            "<=" => PackageVersionRelation::InferiorOrEqual,
+            "==" => PackageVersionRelation::Equal,
+            ">=" => PackageVersionRelation::SuperiorOrEqual,
+            ">>" => PackageVersionRelation::StriclySuperior,
+            r => {
+                panic!("Unexpected version relation: {}", r)
+            }
+        };
+        let package_version_raw = &package_desc_tokens.next().unwrap();
+        let package_version = &package_version_raw[0..&package_version_raw.len() - 1];
+        println!("{} {:?} {}", &package_name, &package_version_relation, &package_version);
     }
 
     Ok(deps)
