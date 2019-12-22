@@ -30,6 +30,7 @@ struct Package {
 
 #[derive(Debug)]
 enum PackageVersionRelation {
+    Any,
     StrictlyInferior,
     InferiorOrEqual,
     Equal,
@@ -134,19 +135,28 @@ fn get_dependencies_cache(package: &Package) -> Result<VecDeque<PackageDependenc
     {
         let mut package_desc_tokens = package_desc.split(' ');
         let package_name = package_desc_tokens.next().unwrap().to_string();
-        let package_version_relation_raw = &package_desc_tokens.next().unwrap()[1..];
+        let package_version_relation_raw = &package_desc_tokens.next();
         let package_version_relation = match package_version_relation_raw {
-            "<<" => PackageVersionRelation::StrictlyInferior,
-            "<=" => PackageVersionRelation::InferiorOrEqual,
-            "==" => PackageVersionRelation::Equal,
-            ">=" => PackageVersionRelation::SuperiorOrEqual,
-            ">>" => PackageVersionRelation::StriclySuperior,
-            r => {
-                panic!("Unexpected version relation: {}", r)
+            Some(r) => match &r[1..] {
+                "<<" => PackageVersionRelation::StrictlyInferior,
+                "<=" => PackageVersionRelation::InferiorOrEqual,
+                "=" => PackageVersionRelation::Equal,
+                ">=" => PackageVersionRelation::SuperiorOrEqual,
+                ">>" => PackageVersionRelation::StriclySuperior,
+                r => {
+                    panic!("Unexpected version relation: {}", r);
+                }
+            }
+            None => PackageVersionRelation::Any
+        };
+        let package_version: String = match package_version_relation {
+            PackageVersionRelation::Any => "".to_string(),
+            _ => {
+                let package_version_raw = &package_desc_tokens.next().unwrap();
+                package_version_raw[0..&package_version_raw.len() - 1].to_string()
             }
         };
-        let package_version_raw = &package_desc_tokens.next().unwrap();
-        let package_version = package_version_raw[0..&package_version_raw.len() - 1].to_string();
+
         deps.push_back(PackageDependency {
             package: Package {
                 name: package_name,
