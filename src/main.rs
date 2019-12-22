@@ -54,7 +54,7 @@ fn parse_cl_args() -> CLArgs {
 }
 
 
-fn get_dependencies_cache(package: &Package) -> Result<VecDeque<Package>, Box<error::Error>> {
+fn get_dependencies_cache(package: &Package) -> Result<VecDeque<Package>, Box<dyn error::Error>> {
     let deps = VecDeque::new();
 
     let output = Command::new("apt-cache")
@@ -87,10 +87,8 @@ fn get_dependencies_cache(package: &Package) -> Result<VecDeque<Package>, Box<er
 }
 
 
-fn get_dependencies_remote(package: &Package) -> Result<VecDeque<Package>, Box<error::Error>> {
-    let deps = VecDeque::new();
-
-    Ok(deps)
+fn get_dependencies_remote(_package: &Package) -> Result<VecDeque<Package>, Box<dyn error::Error>> {
+    unimplemented!();
 }
 
 
@@ -109,8 +107,8 @@ fn get_dependencies(package: Package) -> VecDeque<Package> {
 }
 
 
-fn build_install_cmdline(packages: VecDeque<Package>) -> String {
-    "TODO".to_string()
+fn build_install_cmdline(_packages: VecDeque<Package>) -> String {
+    unimplemented!();
 }
 
 
