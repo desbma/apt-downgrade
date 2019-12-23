@@ -8,9 +8,7 @@ use std::process::{Command, Stdio};
 
 use clap::{App, Arg};
 
-
-const ARCH: &str = "amd64";  // TODO get from command line/env
-
+const ARCH: &str = "amd64"; // TODO get from command line/env
 
 /// Parsed command line arguments
 #[derive(Clone)]
@@ -115,10 +113,10 @@ fn get_dependencies_cache(
     let mut deps = VecDeque::new();
 
     // TODO allow passing cache dir from command line
-    let deb_filepath = format!("/var/cache/apt/archives/{}_{}_{}.deb",
-                               package.name,
-                               package.version,
-                               ARCH);
+    let deb_filepath = format!(
+        "/var/cache/apt/archives/{}_{}_{}.deb",
+        package.name, package.version, ARCH
+    );
     let spec = format!("{}={}", package.name, package.version);
     let apt_args = if Path::new(&deb_filepath).is_file() {
         vec!["show", &deb_filepath]
