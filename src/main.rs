@@ -209,10 +209,17 @@ fn get_dependencies(package: Package) -> VecDeque<PackageDependency> {
     }
 }
 
-fn resolve_version(dependency: &PackageDependency, _installed_version: &Option<String>) -> Package {
+fn resolve_version(
+    dependency: &PackageDependency,
+    _installed_version: &Option<String>,
+) -> Option<Package> {
     match dependency.version_relation {
-        PackageVersionRelation::Equal => dependency.package.clone(),
+        PackageVersionRelation::Equal => Some(dependency.package.clone()),
         _ => {
+            // TODO list version candidates from cache files
+
+            // TODO select the right one
+
             unimplemented!();
         }
     }
@@ -265,7 +272,8 @@ fn main() {
 
         // Resolve version
         let installed_version = get_installed_version(&dependency.package.name);
-        let package = resolve_version(&dependency, &installed_version);
+        let package = resolve_version(&dependency, &installed_version)
+            .unwrap_or_else(|| panic!("Unable to resolve dependency {:?}", dependency));
 
         // Already in install queue?
         if to_install.contains(&package) {
