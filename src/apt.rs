@@ -12,6 +12,7 @@ use itertools::join;
 
 const ARCH: &str = "amd64"; // TODO get from command line/env
 
+/// Package version with comparison traits
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct PackageVersion {
     pub string: String,
@@ -43,6 +44,7 @@ pub struct Package {
     pub version: PackageVersion,
 }
 
+/// Dependency version relation
 #[derive(Debug)]
 pub enum PackageVersionRelation {
     Any,
@@ -61,6 +63,7 @@ pub struct PackageDependency {
     pub version_relation: PackageVersionRelation,
 }
 
+/// Error generated when a command returns non zero code
 #[derive(Debug)]
 struct CommandError {
     status: std::process::ExitStatus,
@@ -85,6 +88,7 @@ impl error::Error for CommandError {
     }
 }
 
+/// Get dependencies for a package using local package cache
 fn get_dependencies_cache(
     package: &Package,
 ) -> Result<VecDeque<PackageDependency>, Box<dyn error::Error>> {
@@ -176,6 +180,7 @@ fn get_dependencies_remote(
     unimplemented!();
 }
 
+/// Get dependencies for a package
 pub fn get_dependencies(package: Package) -> VecDeque<PackageDependency> {
     match get_dependencies_cache(&package) {
         Ok(deps) => deps,
@@ -189,6 +194,7 @@ pub fn get_dependencies(package: Package) -> VecDeque<PackageDependency> {
     }
 }
 
+/// Find the best package version that satisfies a dependency constraint
 pub fn resolve_version(
     dependency: &PackageDependency,
     installed_version: &Option<PackageVersion>,
@@ -256,6 +262,7 @@ pub fn resolve_version(
     }
 }
 
+/// Get the package version currently installed if any
 pub fn get_installed_version(package_name: &str) -> Option<PackageVersion> {
     let output = Command::new("apt-cache")
         .args(vec!["policy", package_name])
@@ -280,6 +287,7 @@ pub fn get_installed_version(package_name: &str) -> Option<PackageVersion> {
     })
 }
 
+/// Get all version of a package currently in local cache
 fn get_cache_package_versions(package_name: String) -> Vec<PackageVersion> {
     glob(&format!(
         "/var/cache/apt/archives/{}_*_{}.deb",
@@ -303,6 +311,7 @@ fn get_cache_package_versions(package_name: String) -> Vec<PackageVersion> {
     .collect()
 }
 
+/// Build apt install command line for a list of packages
 pub fn build_install_cmdline(packages: VecDeque<Package>) -> String {
     format!(
         "apt-get install -V --no-install-recommends {}",
