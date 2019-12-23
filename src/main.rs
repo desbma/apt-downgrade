@@ -3,9 +3,14 @@ use std::error;
 use std::fmt;
 use std::io::BufRead;
 use std::os::unix::process::ExitStatusExt;
+use std::path::Path;
 use std::process::{Command, Stdio};
 
 use clap::{App, Arg};
+
+
+const ARCH: &str = "amd64";  // TODO get from command line/env
+
 
 /// Parsed command line arguments
 #[derive(Clone)]
@@ -109,11 +114,20 @@ fn get_dependencies_cache(
 ) -> Result<VecDeque<PackageDependency>, Box<dyn error::Error>> {
     let mut deps = VecDeque::new();
 
+    // TODO allow passing cache dir from command line
+    let deb_filepath = format!("/var/cache/apt/archives/{}_{}_{}.deb",
+                               package.name,
+                               package.version,
+                               ARCH);
+    let spec = format!("{}={}", package.name, package.version);
+    let apt_args = if Path::new(&deb_filepath).is_file() {
+        vec!["show", &deb_filepath]
+    } else {
+        vec!["show", &spec]
+    };
+
     let output = Command::new("apt-cache")
-        .args(vec![
-            "show",
-            &format!("{}={}", package.name, package.version),
-        ])
+        .args(apt_args)
         .stderr(Stdio::null())
         .output()?;
     if !output.status.success() {
@@ -173,6 +187,14 @@ fn get_dependencies_cache(
 fn get_dependencies_remote(
     _package: &Package,
 ) -> Result<VecDeque<PackageDependency>, Box<dyn error::Error>> {
+    // TODO Build download dir
+
+    // TODO Check if already downloaded
+
+    // TODO get http://ftp.debian.org/debian/pool/main/c/chromium/chromium_78.0.3904.108-1~deb10u1_amd64.deb
+
+    // TODO get deps from deb
+
     unimplemented!();
 }
 
@@ -181,7 +203,7 @@ fn get_dependencies(package: Package) -> VecDeque<PackageDependency> {
         Ok(deps) => deps,
         Err(e) => {
             println!(
-                "Failed to get dependencies for package {:?} from cache: {:?}",
+                "Failed to get dependencies for package {:?} from cache: {}",
                 package, e
             );
             get_dependencies_remote(&package).unwrap()
