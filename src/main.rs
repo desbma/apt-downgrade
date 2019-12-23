@@ -356,10 +356,13 @@ fn get_cache_package_versions(package_name: String) -> Vec<PackageVersion> {
 fn build_install_cmdline(packages: VecDeque<Package>) -> String {
     format!(
         "apt-get install -V --no-install-recommends {}",
-        join(packages.iter().map(|p| format!(
-            "/var/cache/apt/archives/{}_{}_{}.deb",
-            p.name, p.version, ARCH
-        )), " ")
+        join(
+            packages.iter().map(|p| format!(
+                "/var/cache/apt/archives/{}_{}_{}.deb",
+                p.name, p.version, ARCH
+            )),
+            " "
+        )
     )
 }
 
@@ -393,7 +396,7 @@ fn main() {
             version: resolved_version,
         };
 
-        progress = progress + 1;
+        progress += 1;
         print!("\rAnalyzing {} dependencies...", progress);
         io::stdout().flush().unwrap();
 
@@ -416,7 +419,7 @@ fn main() {
         let mut deps = get_dependencies(package);
         to_resolve.append(&mut deps);
     }
-    println("");
+    println!();
 
     // Install
     if to_install.is_empty() {
