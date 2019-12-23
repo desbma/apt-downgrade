@@ -1,3 +1,4 @@
+use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::error;
 use std::fmt;
@@ -11,12 +12,35 @@ use glob::glob;
 
 const ARCH: &str = "amd64"; // TODO get from command line/env
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct PackageVersion {
+    string: String,
+}
+
+impl Ord for PackageVersion {
+    fn cmp(&self, other: &Self) -> Ordering {
+        deb_version::compare_versions(&self.string, &other.string)
+    }
+}
+
+impl PartialOrd for PackageVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl fmt::Display for PackageVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.string)
+    }
+}
+
 /// Parsed command line arguments
 #[derive(Clone)]
 struct CLArgs {
     package_name: String,
 
-    package_version: String,
+    package_version: PackageVersion,
 
     dry_run: bool,
 }
@@ -26,7 +50,7 @@ struct CLArgs {
 struct Package {
     name: String,
 
-    version: String,
+    version: PackageVersion,
 }
 
 #[derive(Debug)]
@@ -98,12 +122,14 @@ fn parse_cl_args() -> CLArgs {
 
     // Post Clap parsing
     let package_name = matches.value_of("PACKAGE_NAME").unwrap().to_string();
-    let package_version = matches.value_of("PACKAGE_VERSION").unwrap().to_string();
+    let package_version = matches.value_of("PACKAGE_VERSION").unwrap();
     let dry_run = !matches.is_present("DRY_RUN");
 
     CLArgs {
         package_name,
-        package_version,
+        package_version: PackageVersion {
+            string: package_version.to_string(),
+        },
         dry_run,
     }
 }
@@ -163,18 +189,20 @@ fn get_dependencies_cache(
             },
             None => PackageVersionRelation::Any,
         };
-        let package_version: String = match package_version_relation {
-            PackageVersionRelation::Any => "".to_string(),
+        let package_version = match package_version_relation {
+            PackageVersionRelation::Any => "",
             _ => {
                 let package_version_raw = &package_desc_tokens.next().unwrap();
-                package_version_raw[0..&package_version_raw.len() - 1].to_string()
+                &package_version_raw[0..&package_version_raw.len() - 1]
             }
         };
 
         deps.push_back(PackageDependency {
             package: Package {
                 name: package_name,
-                version: package_version,
+                version: PackageVersion {
+                    string: package_version.to_string(),
+                },
             },
             version_relation: package_version_relation,
         });
@@ -212,15 +240,15 @@ fn get_dependencies(package: Package) -> VecDeque<PackageDependency> {
 
 fn resolve_version(
     dependency: &PackageDependency,
-    installed_version: &Option<String>,
-) -> Option<String> {
+    installed_version: &Option<PackageVersion>,
+) -> Option<PackageVersion> {
     let version_candidates = get_cache_package_versions(dependency.package.name.clone());
     println!("{:?}", version_candidates);
     // TODO add remote versions
 
     match dependency.version_relation {
         PackageVersionRelation::Any => match installed_version {
-            Some(v) => Some(v.to_string()),
+            Some(v) => Some(v.clone()),
             None => version_candidates.first().cloned(),
         },
         PackageVersionRelation::StrictlyInferior => {
@@ -231,8 +259,7 @@ fn resolve_version(
             } else {
                 version_candidates
                     .iter()
-                    .filter(|v| v < &&dependency.package.version)
-                    .next()
+                    .find(|v| v < &&dependency.package.version)
                     .cloned()
             }
         }
@@ -244,8 +271,7 @@ fn resolve_version(
             } else {
                 version_candidates
                     .iter()
-                    .filter(|v| v <= &&dependency.package.version)
-                    .next()
+                    .find(|v| v <= &&dependency.package.version)
                     .cloned()
             }
         }
@@ -262,8 +288,7 @@ fn resolve_version(
             } else {
                 version_candidates
                     .iter()
-                    .filter(|v| v >= &&dependency.package.version)
-                    .next()
+                    .find(|v| v >= &&dependency.package.version)
                     .cloned()
             }
         }
@@ -275,15 +300,14 @@ fn resolve_version(
             } else {
                 version_candidates
                     .iter()
-                    .filter(|v| v > &&dependency.package.version)
-                    .next()
+                    .find(|v| v > &&dependency.package.version)
                     .cloned()
             }
         }
     }
 }
 
-fn get_installed_version(package_name: &str) -> Option<String> {
+fn get_installed_version(package_name: &str) -> Option<PackageVersion> {
     let output = Command::new("apt-cache")
         .args(vec!["policy", package_name])
         .env("LANG", "C")
@@ -302,18 +326,21 @@ fn get_installed_version(package_name: &str) -> Option<String> {
         .ok()?;
     let package_version = package_version_line.split_at(line_prefix.len()).1;
 
-    Some(package_version.to_string())
+    Some(PackageVersion {
+        string: package_version.to_string(),
+    })
 }
 
-fn get_cache_package_versions(package_name: String) -> Vec<String> {
+fn get_cache_package_versions(package_name: String) -> Vec<PackageVersion> {
     glob(&format!(
         "/var/cache/apt/archives/{}_*_{}.deb",
         package_name, ARCH
     ))
     .unwrap()
     .filter_map(Result::ok)
-    .map(|p| {
-        p.file_name()
+    .map(|p| PackageVersion {
+        string: p
+            .file_name()
             .unwrap()
             .to_os_string()
             .into_string()
@@ -322,7 +349,7 @@ fn get_cache_package_versions(package_name: String) -> Vec<String> {
             .rev()
             .nth(1)
             .unwrap()
-            .to_string()
+            .to_string(),
     })
     .collect()
 }

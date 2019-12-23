@@ -9,4 +9,5 @@ panic = "abort"
 
 [dependencies]
 clap = "2"
+deb-version = "0.1"
 glob = "0.3"
