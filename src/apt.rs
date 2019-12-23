@@ -1,0 +1,317 @@
+use std::cmp::Ordering;
+use std::collections::VecDeque;
+use std::error;
+use std::fmt;
+use std::io::BufRead;
+use std::os::unix::process::ExitStatusExt;
+use std::path::Path;
+use std::process::{Command, Stdio};
+
+use glob::glob;
+use itertools::join;
+
+const ARCH: &str = "amd64"; // TODO get from command line/env
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct PackageVersion {
+    pub string: String,
+}
+
+impl Ord for PackageVersion {
+    fn cmp(&self, other: &Self) -> Ordering {
+        deb_version::compare_versions(&self.string, &other.string)
+    }
+}
+
+impl PartialOrd for PackageVersion {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl fmt::Display for PackageVersion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.string)
+    }
+}
+
+/// A versioned package
+#[derive(Clone, Debug, PartialEq)]
+pub struct Package {
+    pub name: String,
+
+    pub version: PackageVersion,
+}
+
+#[derive(Debug)]
+pub enum PackageVersionRelation {
+    Any,
+    StrictlyInferior,
+    InferiorOrEqual,
+    Equal,
+    SuperiorOrEqual,
+    StriclySuperior,
+}
+
+/// Package dependency
+#[derive(Debug)]
+pub struct PackageDependency {
+    pub package: Package,
+
+    pub version_relation: PackageVersionRelation,
+}
+
+#[derive(Debug)]
+struct CommandError {
+    status: std::process::ExitStatus,
+}
+
+impl fmt::Display for CommandError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.status.code() {
+            Some(code) => write!(f, "Command returned {}", code),
+            None => write!(
+                f,
+                "Command killed by signal {}",
+                self.status.signal().unwrap()
+            ),
+        }
+    }
+}
+
+impl error::Error for CommandError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        None
+    }
+}
+
+fn get_dependencies_cache(
+    package: &Package,
+) -> Result<VecDeque<PackageDependency>, Box<dyn error::Error>> {
+    let mut deps = VecDeque::new();
+
+    // TODO allow passing cache dir from command line
+    let deb_filepath = format!(
+        "/var/cache/apt/archives/{}_{}_{}.deb",
+        package.name, package.version, ARCH
+    );
+    let spec = format!("{}={}", package.name, package.version);
+    let apt_args = if Path::new(&deb_filepath).is_file() {
+        vec!["show", &deb_filepath]
+    } else {
+        vec!["show", &spec]
+    };
+
+    let output = Command::new("apt-cache")
+        .args(apt_args)
+        .stderr(Stdio::null())
+        .output()?;
+    if !output.status.success() {
+        return Err(Box::new(CommandError {
+            status: output.status,
+        }));
+    }
+    let line_prefix = "Depends: ";
+    let package_desc_line = output
+        .stdout
+        .lines()
+        .filter(|l| l.as_ref().unwrap().starts_with(line_prefix))
+        .nth(0)
+        .unwrap()?;
+    for package_desc in package_desc_line
+        .split_at(line_prefix.len())
+        .1
+        .split(',')
+        .map(|l| l.trim_start())
+    {
+        let mut package_desc_tokens = package_desc.split(' ');
+        let package_name = package_desc_tokens.next().unwrap().to_string();
+        let package_version_relation_raw = &package_desc_tokens.next();
+        let package_version_relation = match package_version_relation_raw {
+            Some(r) => match &r[1..] {
+                "<<" => PackageVersionRelation::StrictlyInferior,
+                "<=" => PackageVersionRelation::InferiorOrEqual,
+                "=" => PackageVersionRelation::Equal,
+                ">=" => PackageVersionRelation::SuperiorOrEqual,
+                ">>" => PackageVersionRelation::StriclySuperior,
+                r => {
+                    panic!("Unexpected version relation: {}", r);
+                }
+            },
+            None => PackageVersionRelation::Any,
+        };
+        let package_version = match package_version_relation {
+            PackageVersionRelation::Any => "",
+            _ => {
+                let package_version_raw = &package_desc_tokens.next().unwrap();
+                &package_version_raw[0..&package_version_raw.len() - 1]
+            }
+        };
+
+        deps.push_back(PackageDependency {
+            package: Package {
+                name: package_name,
+                version: PackageVersion {
+                    string: package_version.to_string(),
+                },
+            },
+            version_relation: package_version_relation,
+        });
+    }
+
+    Ok(deps)
+}
+
+fn get_dependencies_remote(
+    _package: &Package,
+) -> Result<VecDeque<PackageDependency>, Box<dyn error::Error>> {
+    // TODO Build download dir
+
+    // TODO Check if already downloaded
+
+    // TODO get http://ftp.debian.org/debian/pool/main/c/chromium/chromium_78.0.3904.108-1~deb10u1_amd64.deb
+
+    // TODO get deps from deb
+
+    unimplemented!();
+}
+
+pub fn get_dependencies(package: Package) -> VecDeque<PackageDependency> {
+    match get_dependencies_cache(&package) {
+        Ok(deps) => deps,
+        Err(e) => {
+            println!(
+                "Failed to get dependencies for package {:?} from cache: {}",
+                package, e
+            );
+            get_dependencies_remote(&package).unwrap()
+        }
+    }
+}
+
+pub fn resolve_version(
+    dependency: &PackageDependency,
+    installed_version: &Option<PackageVersion>,
+) -> Option<PackageVersion> {
+    let version_candidates = get_cache_package_versions(dependency.package.name.clone());
+    // TODO add remote versions
+
+    match dependency.version_relation {
+        PackageVersionRelation::Any => match installed_version {
+            Some(v) => Some(v.clone()),
+            None => version_candidates.first().cloned(),
+        },
+        PackageVersionRelation::StrictlyInferior => {
+            if installed_version.is_some()
+                && (installed_version.as_ref().unwrap() < &dependency.package.version)
+            {
+                installed_version.clone()
+            } else {
+                version_candidates
+                    .iter()
+                    .find(|v| v < &&dependency.package.version)
+                    .cloned()
+            }
+        }
+        PackageVersionRelation::InferiorOrEqual => {
+            if installed_version.is_some()
+                && (installed_version.as_ref().unwrap() <= &dependency.package.version)
+            {
+                installed_version.clone()
+            } else {
+                version_candidates
+                    .iter()
+                    .find(|v| v <= &&dependency.package.version)
+                    .cloned()
+            }
+        }
+        PackageVersionRelation::Equal => version_candidates
+            .iter()
+            .find(|v| v == &&dependency.package.version)
+            .cloned(),
+        PackageVersionRelation::SuperiorOrEqual => {
+            if installed_version.is_some()
+                && (installed_version.as_ref().unwrap() >= &dependency.package.version)
+            {
+                installed_version.clone()
+            } else {
+                version_candidates
+                    .iter()
+                    .find(|v| v >= &&dependency.package.version)
+                    .cloned()
+            }
+        }
+        PackageVersionRelation::StriclySuperior => {
+            if installed_version.is_some()
+                && (installed_version.as_ref().unwrap() > &dependency.package.version)
+            {
+                installed_version.clone()
+            } else {
+                version_candidates
+                    .iter()
+                    .find(|v| v > &&dependency.package.version)
+                    .cloned()
+            }
+        }
+    }
+}
+
+pub fn get_installed_version(package_name: &str) -> Option<PackageVersion> {
+    let output = Command::new("apt-cache")
+        .args(vec!["policy", package_name])
+        .env("LANG", "C")
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let line_prefix = "  Installed: ";
+    let package_version_line = output
+        .stdout
+        .lines()
+        .filter(|l| l.as_ref().unwrap().starts_with(line_prefix))
+        .nth(0)?
+        .ok()?;
+    let package_version = package_version_line.split_at(line_prefix.len()).1;
+
+    Some(PackageVersion {
+        string: package_version.to_string(),
+    })
+}
+
+fn get_cache_package_versions(package_name: String) -> Vec<PackageVersion> {
+    glob(&format!(
+        "/var/cache/apt/archives/{}_*_{}.deb",
+        package_name, ARCH
+    ))
+    .unwrap()
+    .filter_map(Result::ok)
+    .map(|p| PackageVersion {
+        string: p
+            .file_name()
+            .unwrap()
+            .to_os_string()
+            .into_string()
+            .unwrap()
+            .split('_')
+            .rev()
+            .nth(1)
+            .unwrap()
+            .to_string(),
+    })
+    .collect()
+}
+
+pub fn build_install_cmdline(packages: VecDeque<Package>) -> String {
+    format!(
+        "apt-get install -V --no-install-recommends {}",
+        join(
+            packages.iter().map(|p| format!(
+                "/var/cache/apt/archives/{}_{}_{}.deb",
+                p.name, p.version, ARCH
+            )),
+            " "
+        )
+    )
+}
