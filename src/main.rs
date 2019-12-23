@@ -18,7 +18,7 @@ struct CLArgs {
 }
 
 /// A versioned package
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct Package {
     name: String,
 
@@ -189,13 +189,17 @@ fn get_dependencies(package: Package) -> VecDeque<PackageDependency> {
     }
 }
 
-fn resolve_version(dependency: PackageDependency) -> Package {
+fn resolve_version(dependency: &PackageDependency, _installed_version: &Option<String>) -> Package {
     match dependency.version_relation {
-        PackageVersionRelation::Equal => dependency.package,
+        PackageVersionRelation::Equal => dependency.package.clone(),
         _ => {
             unimplemented!();
         }
     }
+}
+
+fn get_installed_version(_package_name: &String) -> Option<String> {
+    unimplemented!();
 }
 
 fn build_install_cmdline(_packages: VecDeque<Package>) -> String {
@@ -222,7 +226,20 @@ fn main() {
         println!("{:?}", dependency);
 
         // Resolve version
-        let package = resolve_version(dependency);
+        let installed_version = get_installed_version(&dependency.package.name);
+        let package = resolve_version(&dependency, &installed_version);
+
+        // Already in install queue?
+        if to_install.contains(&package) {
+            continue;
+        }
+
+        // Already installed?
+        if let Some(installed_version) = installed_version {
+            if installed_version == package.version {
+                continue;
+            }
+        }
 
         // Add to install queue
         to_install.push_back(package.clone());
