@@ -233,10 +233,14 @@ fn main() {
     }
 
     // Install
-    let install_cmdline = build_install_cmdline(to_install);
-    if cl_args.dry_run {
-        println!("{}", install_cmdline);
+    if to_install.is_empty() {
+        println!("Nothing to do");
     } else {
-        unimplemented!();
+        let install_cmdline = build_install_cmdline(to_install);
+        if cl_args.dry_run {
+            println!("{}", install_cmdline);
+        } else {
+            unimplemented!();
+        }
     }
 }
