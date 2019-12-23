@@ -2,13 +2,14 @@ use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::error;
 use std::fmt;
-use std::io::BufRead;
+use std::io::{self, BufRead, Write};
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
 use clap::{App, Arg};
 use glob::glob;
+use itertools::join;
 
 const ARCH: &str = "amd64"; // TODO get from command line/env
 
@@ -123,7 +124,7 @@ fn parse_cl_args() -> CLArgs {
     // Post Clap parsing
     let package_name = matches.value_of("PACKAGE_NAME").unwrap().to_string();
     let package_version = matches.value_of("PACKAGE_VERSION").unwrap();
-    let dry_run = !matches.is_present("DRY_RUN");
+    let dry_run = matches.is_present("DRY_RUN");
 
     CLArgs {
         package_name,
@@ -243,7 +244,6 @@ fn resolve_version(
     installed_version: &Option<PackageVersion>,
 ) -> Option<PackageVersion> {
     let version_candidates = get_cache_package_versions(dependency.package.name.clone());
-    println!("{:?}", version_candidates);
     // TODO add remote versions
 
     match dependency.version_relation {
@@ -277,8 +277,7 @@ fn resolve_version(
         }
         PackageVersionRelation::Equal => version_candidates
             .iter()
-            .filter(|v| v == &&dependency.package.version)
-            .next()
+            .find(|v| v == &&dependency.package.version)
             .cloned(),
         PackageVersionRelation::SuperiorOrEqual => {
             if installed_version.is_some()
@@ -354,8 +353,14 @@ fn get_cache_package_versions(package_name: String) -> Vec<PackageVersion> {
     .collect()
 }
 
-fn build_install_cmdline(_packages: VecDeque<Package>) -> String {
-    unimplemented!();
+fn build_install_cmdline(packages: VecDeque<Package>) -> String {
+    format!(
+        "apt-get install -V --no-install-recommends {}",
+        join(packages.iter().map(|p| format!(
+            "/var/cache/apt/archives/{}_{}_{}.deb",
+            p.name, p.version, ARCH
+        )), " ")
+    )
 }
 
 fn main() {
@@ -373,10 +378,12 @@ fn main() {
     });
     let mut to_install: VecDeque<Package> = VecDeque::new();
 
-    // Resolve packages to install
-    while let Some(dependency) = to_resolve.pop_front() {
-        println!("{:?}", dependency);
+    print!("Analyzing dependencies...");
+    io::stdout().flush().unwrap();
 
+    // Resolve packages to install
+    let mut progress = 0;
+    while let Some(dependency) = to_resolve.pop_front() {
         // Resolve version
         let installed_version = get_installed_version(&dependency.package.name);
         let resolved_version = resolve_version(&dependency, &installed_version)
@@ -385,6 +392,10 @@ fn main() {
             name: dependency.package.name,
             version: resolved_version,
         };
+
+        progress = progress + 1;
+        print!("\rAnalyzing {} dependencies...", progress);
+        io::stdout().flush().unwrap();
 
         // Already in install queue?
         if to_install.contains(&package) {
@@ -405,6 +416,7 @@ fn main() {
         let mut deps = get_dependencies(package);
         to_resolve.append(&mut deps);
     }
+    println("");
 
     // Install
     if to_install.is_empty() {
