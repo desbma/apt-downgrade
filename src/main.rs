@@ -7,6 +7,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use clap::{App, Arg};
+use glob::glob;
 
 const ARCH: &str = "amd64"; // TODO get from command line/env
 
@@ -211,16 +212,73 @@ fn get_dependencies(package: Package) -> VecDeque<PackageDependency> {
 
 fn resolve_version(
     dependency: &PackageDependency,
-    _installed_version: &Option<String>,
-) -> Option<Package> {
+    installed_version: &Option<String>,
+) -> Option<String> {
+    let version_candidates = get_cache_package_versions(dependency.package.name.clone());
+    println!("{:?}", version_candidates);
+    // TODO add remote versions
+
     match dependency.version_relation {
-        PackageVersionRelation::Equal => Some(dependency.package.clone()),
-        _ => {
-            // TODO list version candidates from cache files
-
-            // TODO select the right one
-
-            unimplemented!();
+        PackageVersionRelation::Any => match installed_version {
+            Some(v) => Some(v.to_string()),
+            None => version_candidates.first().cloned(),
+        },
+        PackageVersionRelation::StrictlyInferior => {
+            if installed_version.is_some()
+                && (installed_version.as_ref().unwrap() < &dependency.package.version)
+            {
+                installed_version.clone()
+            } else {
+                version_candidates
+                    .iter()
+                    .filter(|v| v < &&dependency.package.version)
+                    .next()
+                    .cloned()
+            }
+        }
+        PackageVersionRelation::InferiorOrEqual => {
+            if installed_version.is_some()
+                && (installed_version.as_ref().unwrap() <= &dependency.package.version)
+            {
+                installed_version.clone()
+            } else {
+                version_candidates
+                    .iter()
+                    .filter(|v| v <= &&dependency.package.version)
+                    .next()
+                    .cloned()
+            }
+        }
+        PackageVersionRelation::Equal => version_candidates
+            .iter()
+            .filter(|v| v == &&dependency.package.version)
+            .next()
+            .cloned(),
+        PackageVersionRelation::SuperiorOrEqual => {
+            if installed_version.is_some()
+                && (installed_version.as_ref().unwrap() >= &dependency.package.version)
+            {
+                installed_version.clone()
+            } else {
+                version_candidates
+                    .iter()
+                    .filter(|v| v >= &&dependency.package.version)
+                    .next()
+                    .cloned()
+            }
+        }
+        PackageVersionRelation::StriclySuperior => {
+            if installed_version.is_some()
+                && (installed_version.as_ref().unwrap() > &dependency.package.version)
+            {
+                installed_version.clone()
+            } else {
+                version_candidates
+                    .iter()
+                    .filter(|v| v > &&dependency.package.version)
+                    .next()
+                    .cloned()
+            }
         }
     }
 }
@@ -245,6 +303,28 @@ fn get_installed_version(package_name: &str) -> Option<String> {
     let package_version = package_version_line.split_at(line_prefix.len()).1;
 
     Some(package_version.to_string())
+}
+
+fn get_cache_package_versions(package_name: String) -> Vec<String> {
+    glob(&format!(
+        "/var/cache/apt/archives/{}_*_{}.deb",
+        package_name, ARCH
+    ))
+    .unwrap()
+    .filter_map(Result::ok)
+    .map(|p| {
+        p.file_name()
+            .unwrap()
+            .to_os_string()
+            .into_string()
+            .unwrap()
+            .split('_')
+            .rev()
+            .nth(1)
+            .unwrap()
+            .to_string()
+    })
+    .collect()
 }
 
 fn build_install_cmdline(_packages: VecDeque<Package>) -> String {
@@ -272,8 +352,12 @@ fn main() {
 
         // Resolve version
         let installed_version = get_installed_version(&dependency.package.name);
-        let package = resolve_version(&dependency, &installed_version)
+        let resolved_version = resolve_version(&dependency, &installed_version)
             .unwrap_or_else(|| panic!("Unable to resolve dependency {:?}", dependency));
+        let package = Package {
+            name: dependency.package.name,
+            version: resolved_version,
+        };
 
         // Already in install queue?
         if to_install.contains(&package) {
