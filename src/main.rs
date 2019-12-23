@@ -3,6 +3,9 @@ use std::io::{self, Write};
 
 use clap::{App, Arg};
 
+#[macro_use]
+extern crate lazy_static;
+
 mod apt;
 
 /// Parsed command line arguments

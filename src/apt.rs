@@ -10,8 +10,6 @@ use std::process::{Command, Stdio};
 use glob::glob;
 use itertools::join;
 
-const ARCH: &str = "amd64"; // TODO get from command line/env
-
 /// Package version with comparison traits
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct PackageVersion {
@@ -63,6 +61,63 @@ pub struct PackageDependency {
     pub version_relation: PackageVersionRelation,
 }
 
+/// APT environement configuration values
+struct AptEnv {
+    arch: String,
+    cache_dir: String,
+}
+
+lazy_static! {
+    static ref APT_ENV: AptEnv = read_apt_env();
+}
+
+/// Read APT environment values
+fn read_apt_env() -> AptEnv {
+    let output = Command::new("apt-config")
+        .args(vec![
+            "shell",
+            "CACHE_ROOT_DIR",
+            "Dir::Cache",
+            "CACHE_ARCHIVE_SUBDIR",
+            "Dir::Cache::archives",
+            "ARCH",
+            "APT::Architecture",
+        ])
+        .stderr(Stdio::null())
+        .output()
+        .unwrap();
+    if !output.status.success() {
+        panic!();
+    }
+    let lines: Vec<String> = output.stdout.lines().map(|l| l.unwrap()).collect();
+    let cache_root_dir = lines
+        .iter()
+        .find(|l| l.starts_with("CACHE_ROOT_DIR="))
+        .unwrap()
+        .split('\'')
+        .nth(1)
+        .unwrap();
+    let archive_subdir = lines
+        .iter()
+        .find(|l| l.starts_with("CACHE_ARCHIVE_SUBDIR="))
+        .unwrap()
+        .split('\'')
+        .nth(1)
+        .unwrap();
+    let arch = lines
+        .iter()
+        .find(|l| l.starts_with("ARCH="))
+        .unwrap()
+        .split('\'')
+        .nth(1)
+        .unwrap()
+        .to_string();
+
+    let cache_dir = format!("/{}/{}", cache_root_dir, archive_subdir);
+
+    AptEnv { cache_dir, arch }
+}
+
 /// Error generated when a command returns non zero code
 #[derive(Debug)]
 struct CommandError {
@@ -94,10 +149,9 @@ fn get_dependencies_cache(
 ) -> Result<VecDeque<PackageDependency>, Box<dyn error::Error>> {
     let mut deps = VecDeque::new();
 
-    // TODO allow passing cache dir from command line
     let deb_filepath = format!(
-        "/var/cache/apt/archives/{}_{}_{}.deb",
-        package.name, package.version, ARCH
+        "{}{}_{}_{}.deb",
+        APT_ENV.cache_dir, package.name, package.version, APT_ENV.arch
     );
     let spec = format!("{}={}", package.name, package.version);
     let apt_args = if Path::new(&deb_filepath).is_file() {
@@ -119,8 +173,7 @@ fn get_dependencies_cache(
     let package_desc_line = output
         .stdout
         .lines()
-        .filter(|l| l.as_ref().unwrap().starts_with(line_prefix))
-        .nth(0)
+        .find(|l| l.as_ref().unwrap().starts_with(line_prefix))
         .unwrap()?;
     for package_desc in package_desc_line
         .split_at(line_prefix.len())
@@ -277,8 +330,7 @@ pub fn get_installed_version(package_name: &str) -> Option<PackageVersion> {
     let package_version_line = output
         .stdout
         .lines()
-        .filter(|l| l.as_ref().unwrap().starts_with(line_prefix))
-        .nth(0)?
+        .find(|l| l.as_ref().unwrap().starts_with(line_prefix))?
         .ok()?;
     let package_version = package_version_line.split_at(line_prefix.len()).1;
 
@@ -290,8 +342,8 @@ pub fn get_installed_version(package_name: &str) -> Option<PackageVersion> {
 /// Get all version of a package currently in local cache
 fn get_cache_package_versions(package_name: String) -> Vec<PackageVersion> {
     glob(&format!(
-        "/var/cache/apt/archives/{}_*_{}.deb",
-        package_name, ARCH
+        "{}{}_*_{}.deb",
+        APT_ENV.cache_dir, package_name, APT_ENV.arch
     ))
     .unwrap()
     .filter_map(Result::ok)
@@ -317,8 +369,8 @@ pub fn build_install_cmdline(packages: VecDeque<Package>) -> String {
         "apt-get install -V --no-install-recommends {}",
         join(
             packages.iter().map(|p| format!(
-                "/var/cache/apt/archives/{}_{}_{}.deb",
-                p.name, p.version, ARCH
+                "{}{}_{}_{}.deb",
+                APT_ENV.cache_dir, p.name, p.version, APT_ENV.arch
             )),
             " "
         )
