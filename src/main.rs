@@ -121,15 +121,15 @@ fn get_dependencies_cache(
             status: output.status,
         }));
     }
-    let let_line_prefix = "Depends: ";
+    let line_prefix = "Depends: ";
     let package_desc_line = output
         .stdout
         .lines()
-        .filter(|l| l.as_ref().unwrap().starts_with(let_line_prefix))
+        .filter(|l| l.as_ref().unwrap().starts_with(line_prefix))
         .nth(0)
         .unwrap()?;
     for package_desc in package_desc_line
-        .split_at(let_line_prefix.len())
+        .split_at(line_prefix.len())
         .1
         .split(',')
         .map(|l| l.trim_start())
@@ -198,8 +198,26 @@ fn resolve_version(dependency: &PackageDependency, _installed_version: &Option<S
     }
 }
 
-fn get_installed_version(_package_name: &String) -> Option<String> {
-    unimplemented!();
+fn get_installed_version(package_name: &str) -> Option<String> {
+    let output = Command::new("apt-cache")
+        .args(vec!["policy", package_name])
+        .env("LANG", "C")
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let line_prefix = "  Installed: ";
+    let package_version_line = output
+        .stdout
+        .lines()
+        .filter(|l| l.as_ref().unwrap().starts_with(line_prefix))
+        .nth(0)?
+        .ok()?;
+    let package_version = package_version_line.split_at(line_prefix.len()).1;
+
+    Some(package_version.to_string())
 }
 
 fn build_install_cmdline(_packages: VecDeque<Package>) -> String {
