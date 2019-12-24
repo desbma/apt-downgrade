@@ -200,7 +200,9 @@ fn get_dependencies_cache(
         let package_version = match package_version_relation {
             PackageVersionRelation::Any => "",
             _ => {
-                let package_version_raw = &package_desc_tokens.next().ok_or_else(|| SimpleError::new("Unexpected apt-cache output"))?;
+                let package_version_raw = &package_desc_tokens
+                    .next()
+                    .ok_or_else(|| SimpleError::new("Unexpected apt-cache output"))?;
                 &package_version_raw[0..&package_version_raw.len() - 1]
             }
         };
