@@ -12,7 +12,7 @@ Downgrade Debian packages safely
 * Downgrade a package and its dependencies recursively if needed
   - currently installed package are favoured during version resolution
   - otherwise, the most recent version that satisfies the version requirement is chosen
-* Safe: all interaction with the system are done with apt tools (`apt-cache`, `apt-get`...)
+* Safe: all interactions with the system and its packages are done with apt tools (`apt-cache`, `apt-get`...)
 * Supports all Debian based distribution (Debian, Ubuntu, etc.)
 
 
