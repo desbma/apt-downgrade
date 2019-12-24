@@ -29,6 +29,7 @@ sudo cargo install --path . --root /usr/local
 ## TODO
 
 * thread pool for faster execution
+* suggest package versions from local cache
 * download missing packages if not in local cache
 * unit tests
 

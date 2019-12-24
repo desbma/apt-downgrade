@@ -80,7 +80,7 @@ fn main() {
     while let Some(dependency) = to_resolve.pop_front() {
         // Resolve version
         let installed_version = apt::get_installed_version(&dependency.package.name);
-        let resolved_version = apt::resolve_version(&dependency, &installed_version)
+        let resolved_version = apt::resolve_version(&dependency, &installed_version, &apt::APT_ENV)
             .unwrap_or_else(|| panic!("Unable to resolve dependency {:?}", dependency));
         let package = apt::Package {
             name: dependency.package.name,
@@ -107,7 +107,7 @@ fn main() {
         to_install.push_back(package.clone());
 
         // Get package dependencies
-        let mut deps = apt::get_dependencies(package);
+        let mut deps = apt::get_dependencies(package, &apt::APT_ENV);
         to_resolve.append(&mut deps);
     }
     println!();
@@ -116,7 +116,7 @@ fn main() {
     if to_install.is_empty() {
         println!("Nothing to do");
     } else {
-        let install_cmdline = apt::build_install_cmdline(to_install);
+        let install_cmdline = apt::build_install_cmdline(to_install, &apt::APT_ENV);
         if cl_args.dry_run {
             println!("{}", install_cmdline);
         } else {

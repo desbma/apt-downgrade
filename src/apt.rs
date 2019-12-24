@@ -63,13 +63,13 @@ pub struct PackageDependency {
 }
 
 /// APT environement configuration values
-struct AptEnv {
+pub struct AptEnv {
     arch: String,
     cache_dir: String,
 }
 
 lazy_static! {
-    static ref APT_ENV: AptEnv = read_apt_env().expect("Unable to read APT environment");
+    pub static ref APT_ENV: AptEnv = read_apt_env().expect("Unable to read APT environment");
 }
 
 /// Read APT environment values
@@ -146,12 +146,13 @@ impl error::Error for CommandError {
 /// Get dependencies for a package using local package cache
 fn get_dependencies_cache(
     package: &Package,
+    apt_env: &AptEnv,
 ) -> Result<VecDeque<PackageDependency>, Box<dyn error::Error>> {
     let mut deps = VecDeque::new();
 
     let deb_filepath = format!(
         "{}{}_{}_{}.deb",
-        APT_ENV.cache_dir, package.name, package.version, APT_ENV.arch
+        apt_env.cache_dir, package.name, package.version, apt_env.arch
     );
     let spec = format!("{}={}", package.name, package.version);
     let apt_args = if Path::new(&deb_filepath).is_file() {
@@ -223,6 +224,7 @@ fn get_dependencies_cache(
 
 fn get_dependencies_remote(
     _package: &Package,
+    _apt_env: &AptEnv,
 ) -> Result<VecDeque<PackageDependency>, Box<dyn error::Error>> {
     // TODO Build download dir
 
@@ -236,15 +238,15 @@ fn get_dependencies_remote(
 }
 
 /// Get dependencies for a package
-pub fn get_dependencies(package: Package) -> VecDeque<PackageDependency> {
-    match get_dependencies_cache(&package) {
+pub fn get_dependencies(package: Package, apt_env: &AptEnv) -> VecDeque<PackageDependency> {
+    match get_dependencies_cache(&package, &apt_env) {
         Ok(deps) => deps,
         Err(e) => {
             println!(
                 "Failed to get dependencies for package {:?} from cache: {}",
                 package, e
             );
-            get_dependencies_remote(&package).unwrap()
+            get_dependencies_remote(&package, &apt_env).unwrap()
         }
     }
 }
@@ -253,8 +255,9 @@ pub fn get_dependencies(package: Package) -> VecDeque<PackageDependency> {
 pub fn resolve_version(
     dependency: &PackageDependency,
     installed_version: &Option<PackageVersion>,
+    apt_env: &AptEnv,
 ) -> Option<PackageVersion> {
-    let version_candidates = get_cache_package_versions(dependency.package.name.clone());
+    let version_candidates = get_cache_package_versions(dependency.package.name.clone(), &apt_env);
     // TODO add remote versions
 
     match dependency.version_relation {
@@ -342,10 +345,10 @@ pub fn get_installed_version(package_name: &str) -> Option<PackageVersion> {
 }
 
 /// Get all version of a package currently in local cache
-fn get_cache_package_versions(package_name: String) -> Vec<PackageVersion> {
+fn get_cache_package_versions(package_name: String, apt_env: &AptEnv) -> Vec<PackageVersion> {
     glob(&format!(
         "{}{}_*_{}.deb",
-        APT_ENV.cache_dir, package_name, APT_ENV.arch
+        apt_env.cache_dir, package_name, apt_env.arch
     ))
     .unwrap()
     .filter_map(Result::ok)
@@ -366,15 +369,46 @@ fn get_cache_package_versions(package_name: String) -> Vec<PackageVersion> {
 }
 
 /// Build apt install command line for a list of packages
-pub fn build_install_cmdline(packages: VecDeque<Package>) -> String {
+pub fn build_install_cmdline(packages: VecDeque<Package>, apt_env: &AptEnv) -> String {
     format!(
         "apt-get install -V --no-install-recommends {}",
         join(
             packages.iter().map(|p| format!(
                 "{}{}_{}_{}.deb",
-                APT_ENV.cache_dir, p.name, p.version, APT_ENV.arch
+                apt_env.cache_dir, p.name, p.version, apt_env.arch
             )),
             " "
         )
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_install_cmdline() {
+        let apt_env = AptEnv {
+            cache_dir: "/cache/dir/".to_string(),
+            arch: "thearch".to_string(),
+        };
+        let packages: VecDeque<Package> = VecDeque::from(vec![
+            Package {
+                name: "package1".to_string(),
+                version: PackageVersion {
+                    string: "1.2.3.4".to_string(),
+                },
+            },
+            Package {
+                name: "package2".to_string(),
+                version: PackageVersion {
+                    string: "4.3.2-a1".to_string(),
+                },
+            },
+        ]);
+        assert_eq!(
+            build_install_cmdline(packages, &apt_env),
+            "apt-get install -V --no-install-recommends /cache/dir/package1_1.2.3.4_thearch.deb /cache/dir/package2_4.3.2-a1_thearch.deb"
+        );
+    }
 }
