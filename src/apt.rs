@@ -9,6 +9,7 @@ use std::process::{Command, Stdio};
 
 use glob::glob;
 use itertools::join;
+use simple_error::SimpleError;
 
 /// Package version with comparison traits
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -68,11 +69,11 @@ struct AptEnv {
 }
 
 lazy_static! {
-    static ref APT_ENV: AptEnv = read_apt_env();
+    static ref APT_ENV: AptEnv = read_apt_env().expect("Unable to read APT environment");
 }
 
 /// Read APT environment values
-fn read_apt_env() -> AptEnv {
+fn read_apt_env() -> Result<AptEnv, Box<dyn error::Error>> {
     let output = Command::new("apt-config")
         .args(vec![
             "shell",
@@ -84,38 +85,37 @@ fn read_apt_env() -> AptEnv {
             "APT::Architecture",
         ])
         .stderr(Stdio::null())
-        .output()
-        .unwrap();
+        .output()?;
     if !output.status.success() {
-        panic!();
+        return Err(Box::new(SimpleError::new("apt-config failed")));
     }
     let lines: Vec<String> = output.stdout.lines().map(|l| l.unwrap()).collect();
     let cache_root_dir = lines
         .iter()
         .find(|l| l.starts_with("CACHE_ROOT_DIR="))
-        .unwrap()
+        .ok_or_else(|| SimpleError::new("Unexpected apt-config output"))?
         .split('\'')
         .nth(1)
-        .unwrap();
+        .ok_or_else(|| SimpleError::new("Unexpected apt-config output"))?;
     let archive_subdir = lines
         .iter()
         .find(|l| l.starts_with("CACHE_ARCHIVE_SUBDIR="))
-        .unwrap()
+        .ok_or_else(|| SimpleError::new("Unexpected apt-config output"))?
         .split('\'')
         .nth(1)
-        .unwrap();
+        .ok_or_else(|| SimpleError::new("Unexpected apt-config output"))?;
     let arch = lines
         .iter()
         .find(|l| l.starts_with("ARCH="))
-        .unwrap()
+        .ok_or_else(|| SimpleError::new("Unexpected apt-config output"))?
         .split('\'')
         .nth(1)
-        .unwrap()
+        .ok_or_else(|| SimpleError::new("Unexpected apt-config output"))?
         .to_string();
 
     let cache_dir = format!("/{}/{}", cache_root_dir, archive_subdir);
 
-    AptEnv { cache_dir, arch }
+    Ok(AptEnv { cache_dir, arch })
 }
 
 /// Error generated when a command returns non zero code
@@ -174,7 +174,7 @@ fn get_dependencies_cache(
         .stdout
         .lines()
         .find(|l| l.as_ref().unwrap().starts_with(line_prefix))
-        .unwrap()?;
+        .ok_or_else(|| SimpleError::new("Unexpected apt-cache output"))??;
     for package_desc in package_desc_line
         .split_at(line_prefix.len())
         .1
@@ -200,7 +200,7 @@ fn get_dependencies_cache(
         let package_version = match package_version_relation {
             PackageVersionRelation::Any => "",
             _ => {
-                let package_version_raw = &package_desc_tokens.next().unwrap();
+                let package_version_raw = &package_desc_tokens.next().ok_or_else(|| SimpleError::new("Unexpected apt-cache output"))?;
                 &package_version_raw[0..&package_version_raw.len() - 1]
             }
         };
