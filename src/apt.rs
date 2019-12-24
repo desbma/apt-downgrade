@@ -41,6 +41,8 @@ pub struct Package {
     pub name: String,
 
     pub version: PackageVersion,
+
+    pub arch: Option<String>,
 }
 
 /// Dependency version relation
@@ -84,6 +86,7 @@ fn read_apt_env() -> Result<AptEnv, Box<dyn error::Error>> {
             "ARCH",
             "APT::Architecture",
         ])
+        .env("LANG", "C")
         .stderr(Stdio::null())
         .output()?;
     if !output.status.success() {
@@ -152,7 +155,10 @@ fn get_dependencies_cache(
 
     let deb_filepath = format!(
         "{}{}_{}_{}.deb",
-        apt_env.cache_dir, package.name, package.version, apt_env.arch
+        apt_env.cache_dir,
+        package.name,
+        package.version,
+        package.arch.as_ref().unwrap()
     );
     let spec = format!("{}={}", package.name, package.version);
     let apt_args = if Path::new(&deb_filepath).is_file() {
@@ -163,6 +169,7 @@ fn get_dependencies_cache(
 
     let output = Command::new("apt-cache")
         .args(apt_args)
+        .env("LANG", "C")
         .stderr(Stdio::null())
         .output()?;
     if !output.status.success() {
@@ -214,6 +221,7 @@ fn get_dependencies_cache(
                 version: PackageVersion {
                     string: package_version.to_string(),
                 },
+                arch: None,
             },
             version_relation: package_version_relation,
         });
@@ -254,66 +262,68 @@ pub fn get_dependencies(package: Package, apt_env: &AptEnv) -> VecDeque<PackageD
 /// Find the best package version that satisfies a dependency constraint
 pub fn resolve_version(
     dependency: &PackageDependency,
-    installed_version: &Option<PackageVersion>,
+    installed_package: &Option<Package>,
     apt_env: &AptEnv,
-) -> Option<PackageVersion> {
-    let version_candidates = get_cache_package_versions(dependency.package.name.clone(), &apt_env);
+) -> Option<Package> {
+    let candidates = get_cache_package_versions(dependency.package.name.clone(), &apt_env);
     // TODO add remote versions
 
+    // TODO handle multiple contraints for a single version
+
     match dependency.version_relation {
-        PackageVersionRelation::Any => match installed_version {
-            Some(v) => Some(v.clone()),
-            None => version_candidates.first().cloned(),
+        PackageVersionRelation::Any => match installed_package {
+            Some(p) => Some(p.clone()),
+            None => candidates.iter().next().cloned(),
         },
         PackageVersionRelation::StrictlyInferior => {
-            if installed_version.is_some()
-                && (*installed_version.as_ref().unwrap() < dependency.package.version)
+            if installed_package.is_some()
+                && (installed_package.as_ref().unwrap().version < dependency.package.version)
             {
-                installed_version.clone()
+                installed_package.clone()
             } else {
-                version_candidates
+                candidates
                     .iter()
-                    .find(|v| **v < dependency.package.version)
+                    .find(|p| p.version < dependency.package.version)
                     .cloned()
             }
         }
         PackageVersionRelation::InferiorOrEqual => {
-            if installed_version.is_some()
-                && (*installed_version.as_ref().unwrap() <= dependency.package.version)
+            if installed_package.is_some()
+                && (installed_package.as_ref().unwrap().version <= dependency.package.version)
             {
-                installed_version.clone()
+                installed_package.clone()
             } else {
-                version_candidates
+                candidates
                     .iter()
-                    .find(|v| **v <= dependency.package.version)
+                    .find(|p| p.version <= dependency.package.version)
                     .cloned()
             }
         }
-        PackageVersionRelation::Equal => version_candidates
+        PackageVersionRelation::Equal => candidates
             .iter()
-            .find(|v| v == &&dependency.package.version)
+            .find(|v| v.version == dependency.package.version)
             .cloned(),
         PackageVersionRelation::SuperiorOrEqual => {
-            if installed_version.is_some()
-                && (*installed_version.as_ref().unwrap() >= dependency.package.version)
+            if installed_package.is_some()
+                && (installed_package.as_ref().unwrap().version >= dependency.package.version)
             {
-                installed_version.clone()
+                installed_package.clone()
             } else {
-                version_candidates
+                candidates
                     .iter()
-                    .find(|v| **v >= dependency.package.version)
+                    .find(|p| p.version >= dependency.package.version)
                     .cloned()
             }
         }
         PackageVersionRelation::StriclySuperior => {
-            if installed_version.is_some()
-                && (*installed_version.as_ref().unwrap() > dependency.package.version)
+            if installed_package.is_some()
+                && (installed_package.as_ref().unwrap().version > dependency.package.version)
             {
-                installed_version.clone()
+                installed_package.clone()
             } else {
-                version_candidates
+                candidates
                     .iter()
-                    .find(|v| **v > dependency.package.version)
+                    .find(|p| p.version > dependency.package.version)
                     .cloned()
             }
         }
@@ -321,7 +331,8 @@ pub fn resolve_version(
 }
 
 /// Get the package version currently installed if any
-pub fn get_installed_version(package_name: &str) -> Option<PackageVersion> {
+pub fn get_installed_version(package_name: &str) -> Option<Package> {
+    // Get version
     let output = Command::new("apt-cache")
         .args(vec!["policy", package_name])
         .env("LANG", "C")
@@ -339,33 +350,71 @@ pub fn get_installed_version(package_name: &str) -> Option<PackageVersion> {
         .ok()?;
     let package_version = package_version_line.split_at(line_prefix.len()).1;
 
-    Some(PackageVersion {
-        string: package_version.to_string(),
+    // Get architecture
+    let output = Command::new("apt-cache")
+        .args(vec!["show", package_name])
+        .env("LANG", "C")
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let line_prefix = "Architecture: ";
+    let package_arch_line = output
+        .stdout
+        .lines()
+        .find(|l| l.as_ref().unwrap().starts_with(line_prefix))?
+        .ok()?;
+    let package_arch = package_arch_line.split_at(line_prefix.len()).1;
+
+    Some(Package {
+        name: package_name.to_string(),
+        version: PackageVersion {
+            string: package_version.to_string(),
+        },
+        arch: Some(package_arch.to_string()),
     })
 }
 
 /// Get all version of a package currently in local cache
-fn get_cache_package_versions(package_name: String, apt_env: &AptEnv) -> Vec<PackageVersion> {
-    glob(&format!(
-        "{}{}_*_{}.deb",
-        apt_env.cache_dir, package_name, apt_env.arch
-    ))
-    .unwrap()
-    .filter_map(Result::ok)
-    .map(|p| PackageVersion {
-        string: p
-            .file_name()
-            .unwrap()
-            .to_os_string()
-            .into_string()
-            .unwrap()
-            .split('_')
-            .rev()
-            .nth(1)
-            .unwrap()
-            .to_string(),
-    })
-    .collect()
+fn get_cache_package_versions(package_name: String, apt_env: &AptEnv) -> VecDeque<Package> {
+    let mut versions = VecDeque::new();
+
+    for arch in &[apt_env.arch.clone(), "all".to_string(), "any".to_string()] {
+        for path_entry in glob(&format!(
+            "{}{}_*_{}.deb",
+            apt_env.cache_dir, package_name, arch
+        ))
+        .unwrap()
+        .filter_map(Result::ok)
+        {
+            let path = path_entry
+                .file_name()
+                .unwrap()
+                .to_os_string()
+                .into_string()
+                .unwrap();
+            let mut tokens = path.split('_').rev();
+            let arch = tokens
+                .next()
+                .unwrap()
+                .split('.')
+                .nth(0)
+                .unwrap()
+                .to_string();
+            let version = tokens.next().unwrap().to_string();
+            versions.push_back(Package {
+                name: package_name.clone(),
+                version: PackageVersion {
+                    string: version.to_string(),
+                },
+                arch: Some(arch.to_string()),
+            });
+        }
+    }
+
+    versions
 }
 
 /// Build apt install command line for a list of packages
@@ -375,7 +424,10 @@ pub fn build_install_cmdline(packages: VecDeque<Package>, apt_env: &AptEnv) -> S
         join(
             packages.iter().map(|p| format!(
                 "{}{}_{}_{}.deb",
-                apt_env.cache_dir, p.name, p.version, apt_env.arch
+                apt_env.cache_dir,
+                p.name,
+                p.version,
+                p.arch.as_ref().unwrap()
             )),
             " "
         )
@@ -398,17 +450,19 @@ mod tests {
                 version: PackageVersion {
                     string: "1.2.3.4".to_string(),
                 },
+                arch: Some("thearch".to_string()),
             },
             Package {
                 name: "package2".to_string(),
                 version: PackageVersion {
                     string: "4.3.2-a1".to_string(),
                 },
+                arch: Some("all".to_string()),
             },
         ]);
         assert_eq!(
             build_install_cmdline(packages, &apt_env),
-            "apt-get install -V --no-install-recommends /cache/dir/package1_1.2.3.4_thearch.deb /cache/dir/package2_4.3.2-a1_thearch.deb"
+            "apt-get install -V --no-install-recommends /cache/dir/package1_1.2.3.4_thearch.deb /cache/dir/package2_4.3.2-a1_all.deb"
         );
     }
 }

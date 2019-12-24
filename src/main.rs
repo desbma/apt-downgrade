@@ -67,6 +67,7 @@ fn main() {
         package: apt::Package {
             name: cl_args.package_name,
             version: cl_args.package_version,
+            arch: None,
         },
         version_relation: apt::PackageVersionRelation::Equal,
     });
@@ -79,35 +80,31 @@ fn main() {
     let mut progress = 0;
     while let Some(dependency) = to_resolve.pop_front() {
         // Resolve version
-        let installed_version = apt::get_installed_version(&dependency.package.name);
-        let resolved_version = apt::resolve_version(&dependency, &installed_version, &apt::APT_ENV)
+        let installed_package = apt::get_installed_version(&dependency.package.name);
+        let resolved_package = apt::resolve_version(&dependency, &installed_package, &apt::APT_ENV)
             .unwrap_or_else(|| panic!("Unable to resolve dependency {:?}", dependency));
-        let package = apt::Package {
-            name: dependency.package.name,
-            version: resolved_version,
-        };
 
         progress += 1;
         print!("\rAnalyzing {} dependencies...", progress);
         io::stdout().flush().unwrap();
 
         // Already in install queue?
-        if to_install.contains(&package) {
+        if to_install.contains(&resolved_package) {
             continue;
         }
 
         // Already installed?
-        if let Some(installed_version) = installed_version {
-            if installed_version == package.version {
+        if let Some(installed_package) = installed_package {
+            if installed_package == resolved_package {
                 continue;
             }
         }
 
         // Add to install queue
-        to_install.push_back(package.clone());
+        to_install.push_back(resolved_package.clone());
 
         // Get package dependencies
-        let mut deps = apt::get_dependencies(package, &apt::APT_ENV);
+        let mut deps = apt::get_dependencies(resolved_package, &apt::APT_ENV);
         to_resolve.append(&mut deps);
     }
     println!();
@@ -118,7 +115,7 @@ fn main() {
     } else {
         let install_cmdline = apt::build_install_cmdline(to_install, &apt::APT_ENV);
         if cl_args.dry_run {
-            println!("{}", install_cmdline);
+            println!("Run:\n{}", install_cmdline);
         } else {
             unimplemented!();
         }
