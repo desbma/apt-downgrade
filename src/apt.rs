@@ -262,25 +262,25 @@ pub fn resolve_version(
         },
         PackageVersionRelation::StrictlyInferior => {
             if installed_version.is_some()
-                && (installed_version.as_ref().unwrap() < &dependency.package.version)
+                && (*installed_version.as_ref().unwrap() < dependency.package.version)
             {
                 installed_version.clone()
             } else {
                 version_candidates
                     .iter()
-                    .find(|v| v < &&dependency.package.version)
+                    .find(|v| **v < dependency.package.version)
                     .cloned()
             }
         }
         PackageVersionRelation::InferiorOrEqual => {
             if installed_version.is_some()
-                && (installed_version.as_ref().unwrap() <= &dependency.package.version)
+                && (*installed_version.as_ref().unwrap() <= dependency.package.version)
             {
                 installed_version.clone()
             } else {
                 version_candidates
                     .iter()
-                    .find(|v| v <= &&dependency.package.version)
+                    .find(|v| **v <= dependency.package.version)
                     .cloned()
             }
         }
@@ -290,25 +290,25 @@ pub fn resolve_version(
             .cloned(),
         PackageVersionRelation::SuperiorOrEqual => {
             if installed_version.is_some()
-                && (installed_version.as_ref().unwrap() >= &dependency.package.version)
+                && (*installed_version.as_ref().unwrap() >= dependency.package.version)
             {
                 installed_version.clone()
             } else {
                 version_candidates
                     .iter()
-                    .find(|v| v >= &&dependency.package.version)
+                    .find(|v| **v >= dependency.package.version)
                     .cloned()
             }
         }
         PackageVersionRelation::StriclySuperior => {
             if installed_version.is_some()
-                && (installed_version.as_ref().unwrap() > &dependency.package.version)
+                && (*installed_version.as_ref().unwrap() > dependency.package.version)
             {
                 installed_version.clone()
             } else {
                 version_candidates
                     .iter()
-                    .find(|v| v > &&dependency.package.version)
+                    .find(|v| **v > dependency.package.version)
                     .cloned()
             }
         }
