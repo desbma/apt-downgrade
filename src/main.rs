@@ -81,8 +81,12 @@ fn main() {
     while let Some(dependency) = to_resolve.pop_front() {
         // Resolve version
         let installed_package = apt::get_installed_version(&dependency.package.name);
-        let resolved_package = apt::resolve_version(&dependency, &installed_package, &apt::APT_ENV)
-            .unwrap_or_else(|| panic!("Unable to resolve dependency {:?}", dependency));
+        let package_candidates =
+            apt::get_cache_package_versions(&dependency.package.name, &apt::APT_ENV);
+        // TODO add remote versions
+        let resolved_package =
+            apt::resolve_dependency(&dependency, &package_candidates, &installed_package)
+                .unwrap_or_else(|| panic!("Unable to resolve dependency {:?}", dependency));
 
         progress += 1;
         print!("\rAnalyzing {} dependencies...", progress);

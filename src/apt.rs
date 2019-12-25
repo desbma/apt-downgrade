@@ -260,14 +260,11 @@ pub fn get_dependencies(package: Package, apt_env: &AptEnv) -> VecDeque<PackageD
 }
 
 /// Find the best package version that satisfies a dependency constraint
-pub fn resolve_version(
+pub fn resolve_dependency(
     dependency: &PackageDependency,
+    candidates: &VecDeque<Package>,
     installed_package: &Option<Package>,
-    apt_env: &AptEnv,
 ) -> Option<Package> {
-    let candidates = get_cache_package_versions(dependency.package.name.clone(), &apt_env);
-    // TODO add remote versions
-
     // TODO handle multiple contraints for a single version
 
     match dependency.version_relation {
@@ -378,7 +375,7 @@ pub fn get_installed_version(package_name: &str) -> Option<Package> {
 }
 
 /// Get all version of a package currently in local cache
-fn get_cache_package_versions(package_name: String, apt_env: &AptEnv) -> VecDeque<Package> {
+pub fn get_cache_package_versions(package_name: &str, apt_env: &AptEnv) -> VecDeque<Package> {
     let mut versions = VecDeque::new();
 
     for arch in &[apt_env.arch.clone(), "all".to_string(), "any".to_string()] {
@@ -405,7 +402,7 @@ fn get_cache_package_versions(package_name: String, apt_env: &AptEnv) -> VecDequ
                 .to_string();
             let version = tokens.next().unwrap().to_string();
             versions.push_back(Package {
-                name: package_name.clone(),
+                name: package_name.to_string(),
                 version: PackageVersion {
                     string: version.to_string(),
                 },
@@ -463,6 +460,191 @@ mod tests {
         assert_eq!(
             build_install_cmdline(packages, &apt_env),
             "apt-get install -V --no-install-recommends /cache/dir/package1_1.2.3.4_thearch.deb /cache/dir/package2_4.3.2-a1_all.deb"
+        );
+    }
+
+    #[test]
+    fn test_resolve_dependency() {
+        let candidates = VecDeque::from(vec![
+            Package {
+                name: "p1".to_string(),
+                version: PackageVersion {
+                    string: "1.0.3".to_string(),
+                },
+                arch: Some("4rch".to_string()),
+            },
+            Package {
+                name: "p1".to_string(),
+                version: PackageVersion {
+                    string: "1.0.2".to_string(),
+                },
+                arch: Some("4rch".to_string()),
+            },
+            Package {
+                name: "p1".to_string(),
+                version: PackageVersion {
+                    string: "1.0.1".to_string(),
+                },
+                arch: Some("4rch".to_string()),
+            },
+            Package {
+                name: "p1".to_string(),
+                version: PackageVersion {
+                    string: "1.0.0".to_string(),
+                },
+                arch: Some("4rch".to_string()),
+            },
+            Package {
+                name: "p1".to_string(),
+                version: PackageVersion {
+                    string: "0.9.9".to_string(),
+                },
+                arch: Some("4rch".to_string()),
+            },
+        ]);
+
+        //
+        // Any
+        //
+
+        let dependency = PackageDependency {
+            package: candidates[0].clone(),
+            version_relation: PackageVersionRelation::Any,
+        };
+        let installed_package = None;
+        assert_eq!(
+            resolve_dependency(&dependency, &candidates, &installed_package),
+            Some(candidates[0].clone())
+        );
+
+        let installed_package = Some(candidates[3].clone());
+        assert_eq!(
+            resolve_dependency(&dependency, &candidates, &installed_package),
+            Some(candidates[3].clone())
+        );
+
+        //
+        // StrictlyInferior
+        //
+
+        let dependency = PackageDependency {
+            package: candidates[1].clone(),
+            version_relation: PackageVersionRelation::StrictlyInferior,
+        };
+        let installed_package = None;
+        assert_eq!(
+            resolve_dependency(&dependency, &candidates, &installed_package),
+            Some(candidates[2].clone())
+        );
+
+        let installed_package = Some(candidates[3].clone());
+        assert_eq!(
+            resolve_dependency(&dependency, &candidates, &installed_package),
+            Some(candidates[3].clone())
+        );
+
+        let installed_package = Some(candidates[0].clone());
+        assert_eq!(
+            resolve_dependency(&dependency, &candidates, &installed_package),
+            Some(candidates[2].clone())
+        );
+
+        //
+        // InferiorOrEqual
+        //
+
+        let dependency = PackageDependency {
+            package: candidates[1].clone(),
+            version_relation: PackageVersionRelation::InferiorOrEqual,
+        };
+        let installed_package = None;
+        assert_eq!(
+            resolve_dependency(&dependency, &candidates, &installed_package),
+            Some(candidates[1].clone())
+        );
+
+        let installed_package = Some(candidates[3].clone());
+        assert_eq!(
+            resolve_dependency(&dependency, &candidates, &installed_package),
+            Some(candidates[3].clone())
+        );
+
+        let installed_package = Some(candidates[0].clone());
+        assert_eq!(
+            resolve_dependency(&dependency, &candidates, &installed_package),
+            Some(candidates[1].clone())
+        );
+
+        //
+        // Equal
+        //
+
+        let dependency = PackageDependency {
+            package: candidates[1].clone(),
+            version_relation: PackageVersionRelation::Equal,
+        };
+        let installed_package = None;
+        assert_eq!(
+            resolve_dependency(&dependency, &candidates, &installed_package),
+            Some(candidates[1].clone())
+        );
+
+        let installed_package = Some(candidates[3].clone());
+        assert_eq!(
+            resolve_dependency(&dependency, &candidates, &installed_package),
+            Some(candidates[1].clone())
+        );
+
+        //
+        // SuperiorOrEqual
+        //
+
+        let dependency = PackageDependency {
+            package: candidates[2].clone(),
+            version_relation: PackageVersionRelation::SuperiorOrEqual,
+        };
+        let installed_package = None;
+        assert_eq!(
+            resolve_dependency(&dependency, &candidates, &installed_package),
+            Some(candidates[0].clone())
+        );
+
+        let installed_package = Some(candidates[1].clone());
+        assert_eq!(
+            resolve_dependency(&dependency, &candidates, &installed_package),
+            Some(candidates[1].clone())
+        );
+
+        let installed_package = Some(candidates[3].clone());
+        assert_eq!(
+            resolve_dependency(&dependency, &candidates, &installed_package),
+            Some(candidates[0].clone())
+        );
+
+        //
+        // StriclySuperior
+        //
+
+        let dependency = PackageDependency {
+            package: candidates[2].clone(),
+            version_relation: PackageVersionRelation::StriclySuperior,
+        };
+        let installed_package = None;
+        assert_eq!(
+            resolve_dependency(&dependency, &candidates, &installed_package),
+            Some(candidates[0].clone())
+        );
+
+        let installed_package = Some(candidates[1].clone());
+        assert_eq!(
+            resolve_dependency(&dependency, &candidates, &installed_package),
+            Some(candidates[1].clone())
+        );
+
+        let installed_package = Some(candidates[2].clone());
+        assert_eq!(
+            resolve_dependency(&dependency, &candidates, &installed_package),
+            Some(candidates[0].clone())
         );
     }
 }
