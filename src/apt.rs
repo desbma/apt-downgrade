@@ -158,7 +158,10 @@ fn get_dependencies_cache(
         apt_env.cache_dir,
         package.name,
         package.version,
-        package.arch.as_ref().unwrap()
+        package
+            .arch
+            .as_ref()
+            .ok_or_else(|| SimpleError::new("Missing package architecture"))?
     );
     let spec = format!("{}={}", package.name, package.version);
     let apt_args = if Path::new(&deb_filepath).is_file() {
@@ -190,7 +193,10 @@ fn get_dependencies_cache(
         .map(|l| l.trim_start())
     {
         let mut package_desc_tokens = package_desc.split(' ');
-        let package_name = package_desc_tokens.next().unwrap().to_string();
+        let package_name = package_desc_tokens
+            .next()
+            .ok_or_else(|| SimpleError::new("Unexpected apt-cache output"))?
+            .to_string();
         let package_version_relation_raw = &package_desc_tokens.next();
         let package_version_relation = match package_version_relation_raw {
             Some(r) => match &r[1..] {
