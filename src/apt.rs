@@ -273,64 +273,29 @@ pub fn resolve_dependency(
 ) -> Option<Package> {
     // TODO handle multiple contraints for a single version
 
-    match dependency.version_relation {
-        PackageVersionRelation::Any => match installed_package {
-            Some(p) => Some(p.clone()),
-            None => candidates.iter().next().cloned(),
-        },
+    let filter_predicate: Box<dyn Fn(&&Package) -> bool> = match dependency.version_relation {
+        PackageVersionRelation::Any => Box::new(|_p| true),
         PackageVersionRelation::StrictlyInferior => {
-            if installed_package.is_some()
-                && (installed_package.as_ref().unwrap().version < dependency.package.version)
-            {
-                installed_package.clone()
-            } else {
-                candidates
-                    .iter()
-                    .find(|p| p.version < dependency.package.version)
-                    .cloned()
-            }
+            Box::new(|p| p.version < dependency.package.version)
         }
         PackageVersionRelation::InferiorOrEqual => {
-            if installed_package.is_some()
-                && (installed_package.as_ref().unwrap().version <= dependency.package.version)
-            {
-                installed_package.clone()
-            } else {
-                candidates
-                    .iter()
-                    .find(|p| p.version <= dependency.package.version)
-                    .cloned()
-            }
+            Box::new(|p| p.version <= dependency.package.version)
         }
-        PackageVersionRelation::Equal => candidates
-            .iter()
-            .find(|v| v.version == dependency.package.version)
-            .cloned(),
+        PackageVersionRelation::Equal => Box::new(|p| p.version == dependency.package.version),
         PackageVersionRelation::SuperiorOrEqual => {
-            if installed_package.is_some()
-                && (installed_package.as_ref().unwrap().version >= dependency.package.version)
-            {
-                installed_package.clone()
-            } else {
-                candidates
-                    .iter()
-                    .find(|p| p.version >= dependency.package.version)
-                    .cloned()
-            }
+            Box::new(|p| p.version >= dependency.package.version)
         }
         PackageVersionRelation::StriclySuperior => {
-            if installed_package.is_some()
-                && (installed_package.as_ref().unwrap().version > dependency.package.version)
-            {
-                installed_package.clone()
-            } else {
-                candidates
-                    .iter()
-                    .find(|p| p.version > dependency.package.version)
-                    .cloned()
-            }
+            Box::new(|p| p.version > dependency.package.version)
+        }
+    };
+
+    if let Some(installed_package) = installed_package {
+        if filter_predicate(&installed_package) {
+            return Some(installed_package.clone());
         }
     }
+    candidates.iter().find(filter_predicate).cloned()
 }
 
 /// Get the package version currently installed if any
