@@ -1,4 +1,4 @@
-use std::cmp::Ordering;
+use std::cmp::{Ordering, Reverse};
 use std::collections::VecDeque;
 use std::error;
 use std::fmt;
@@ -399,7 +399,12 @@ pub fn get_cache_package_versions(package_name: &str, apt_env: &AptEnv) -> VecDe
         }
     }
 
-    versions
+    // Sort
+    // TODO find a way to sort a VecDeque inplace
+    let mut versions_vec = Vec::from(versions);
+    versions_vec.sort_unstable_by_key(|d| Reverse(d.version.clone()));
+
+    VecDeque::from(versions_vec)
 }
 
 /// Build apt install command line for a list of packages
