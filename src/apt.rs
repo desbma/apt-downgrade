@@ -479,8 +479,11 @@ mod tests {
         //
 
         let dependency = PackageDependency {
-            package: candidates[0].clone(),
-            version_relation: PackageVersionRelation::Any,
+            package_name: candidates[0].name.clone(),
+            version_constraints: vec![PackageVersionConstaint {
+                version: candidates[0].version.clone(),
+                version_relation: PackageVersionRelation::Any,
+            }],
         };
         let installed_package = None;
         assert_eq!(
@@ -499,8 +502,11 @@ mod tests {
         //
 
         let dependency = PackageDependency {
-            package: candidates[1].clone(),
-            version_relation: PackageVersionRelation::StrictlyInferior,
+            package_name: candidates[1].name.clone(),
+            version_constraints: vec![PackageVersionConstaint {
+                version: candidates[1].version.clone(),
+                version_relation: PackageVersionRelation::StrictlyInferior,
+            }],
         };
         let installed_package = None;
         assert_eq!(
@@ -525,8 +531,11 @@ mod tests {
         //
 
         let dependency = PackageDependency {
-            package: candidates[1].clone(),
-            version_relation: PackageVersionRelation::InferiorOrEqual,
+            package_name: candidates[1].name.clone(),
+            version_constraints: vec![PackageVersionConstaint {
+                version: candidates[1].version.clone(),
+                version_relation: PackageVersionRelation::InferiorOrEqual,
+            }],
         };
         let installed_package = None;
         assert_eq!(
@@ -551,8 +560,11 @@ mod tests {
         //
 
         let dependency = PackageDependency {
-            package: candidates[1].clone(),
-            version_relation: PackageVersionRelation::Equal,
+            package_name: candidates[1].name.clone(),
+            version_constraints: vec![PackageVersionConstaint {
+                version: candidates[1].version.clone(),
+                version_relation: PackageVersionRelation::Equal,
+            }],
         };
         let installed_package = None;
         assert_eq!(
@@ -571,8 +583,11 @@ mod tests {
         //
 
         let dependency = PackageDependency {
-            package: candidates[2].clone(),
-            version_relation: PackageVersionRelation::SuperiorOrEqual,
+            package_name: candidates[2].name.clone(),
+            version_constraints: vec![PackageVersionConstaint {
+                version: candidates[2].version.clone(),
+                version_relation: PackageVersionRelation::SuperiorOrEqual,
+            }],
         };
         let installed_package = None;
         assert_eq!(
@@ -597,8 +612,11 @@ mod tests {
         //
 
         let dependency = PackageDependency {
-            package: candidates[2].clone(),
-            version_relation: PackageVersionRelation::StriclySuperior,
+            package_name: candidates[2].name.clone(),
+            version_constraints: vec![PackageVersionConstaint {
+                version: candidates[2].version.clone(),
+                version_relation: PackageVersionRelation::StriclySuperior,
+            }],
         };
         let installed_package = None;
         assert_eq!(
