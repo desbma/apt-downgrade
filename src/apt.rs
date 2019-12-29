@@ -274,28 +274,45 @@ pub fn get_dependencies(package: Package, apt_env: &AptEnv) -> VecDeque<PackageD
 /// Find the best package version that satisfies a dependency constraint
 pub fn resolve_dependency(
     dependency: &PackageDependency,
-    candidates: &VecDeque<Package>,
+    candidates: VecDeque<Package>,
     installed_package: &Option<Package>,
 ) -> Option<Package> {
-    // TODO handle multiple contraints for a single version
+    let mut matching_candidates: Box<dyn std::iter::Iterator<Item = &Package>> =
+        Box::new(candidates.iter());
 
-    let constraint = &dependency.version_constraints[0];
+    // TODO sort candidates by version
 
-    let filter_predicate: Box<dyn Fn(&&Package) -> bool> = match constraint.version_relation {
-        PackageVersionRelation::Any => Box::new(|_p| true),
-        PackageVersionRelation::StrictlyInferior => Box::new(|p| p.version < constraint.version),
-        PackageVersionRelation::InferiorOrEqual => Box::new(|p| p.version <= constraint.version),
-        PackageVersionRelation::Equal => Box::new(|p| p.version == constraint.version),
-        PackageVersionRelation::SuperiorOrEqual => Box::new(|p| p.version >= constraint.version),
-        PackageVersionRelation::StriclySuperior => Box::new(|p| p.version > constraint.version),
-    };
+    for constraint in &dependency.version_constraints {
+        let filter_predicate: Box<dyn Fn(&&Package) -> bool> = match constraint.version_relation {
+            PackageVersionRelation::Any => Box::new(|_p| true),
+            PackageVersionRelation::StrictlyInferior => {
+                Box::new(move |p| p.version < constraint.version)
+            }
+            PackageVersionRelation::InferiorOrEqual => {
+                Box::new(move |p| p.version <= constraint.version)
+            }
+            PackageVersionRelation::Equal => Box::new(move |p| p.version == constraint.version),
+            PackageVersionRelation::SuperiorOrEqual => {
+                Box::new(move |p| p.version >= constraint.version)
+            }
+            PackageVersionRelation::StriclySuperior => {
+                Box::new(move |p| p.version > constraint.version)
+            }
+        };
 
+        matching_candidates = Box::new(matching_candidates.filter(filter_predicate));
+    }
+
+    // If installed package matches, return it
+    let matching_candidates: Vec<&Package> = matching_candidates.collect();
     if let Some(installed_package) = installed_package {
-        if filter_predicate(&installed_package) {
+        if matching_candidates.contains(&installed_package) {
             return Some(installed_package.clone());
         }
     }
-    candidates.iter().find(filter_predicate).cloned()
+
+    // Return the first match
+    Some(matching_candidates[0].clone())
 }
 
 /// Get the package version currently installed if any
@@ -487,13 +504,13 @@ mod tests {
         };
         let installed_package = None;
         assert_eq!(
-            resolve_dependency(&dependency, &candidates, &installed_package),
+            resolve_dependency(&dependency, candidates.clone(), &installed_package),
             Some(candidates[0].clone())
         );
 
         let installed_package = Some(candidates[3].clone());
         assert_eq!(
-            resolve_dependency(&dependency, &candidates, &installed_package),
+            resolve_dependency(&dependency, candidates.clone(), &installed_package),
             Some(candidates[3].clone())
         );
 
@@ -510,19 +527,19 @@ mod tests {
         };
         let installed_package = None;
         assert_eq!(
-            resolve_dependency(&dependency, &candidates, &installed_package),
+            resolve_dependency(&dependency, candidates.clone(), &installed_package),
             Some(candidates[2].clone())
         );
 
         let installed_package = Some(candidates[3].clone());
         assert_eq!(
-            resolve_dependency(&dependency, &candidates, &installed_package),
+            resolve_dependency(&dependency, candidates.clone(), &installed_package),
             Some(candidates[3].clone())
         );
 
         let installed_package = Some(candidates[0].clone());
         assert_eq!(
-            resolve_dependency(&dependency, &candidates, &installed_package),
+            resolve_dependency(&dependency, candidates.clone(), &installed_package),
             Some(candidates[2].clone())
         );
 
@@ -539,19 +556,19 @@ mod tests {
         };
         let installed_package = None;
         assert_eq!(
-            resolve_dependency(&dependency, &candidates, &installed_package),
+            resolve_dependency(&dependency, candidates.clone(), &installed_package),
             Some(candidates[1].clone())
         );
 
         let installed_package = Some(candidates[3].clone());
         assert_eq!(
-            resolve_dependency(&dependency, &candidates, &installed_package),
+            resolve_dependency(&dependency, candidates.clone(), &installed_package),
             Some(candidates[3].clone())
         );
 
         let installed_package = Some(candidates[0].clone());
         assert_eq!(
-            resolve_dependency(&dependency, &candidates, &installed_package),
+            resolve_dependency(&dependency, candidates.clone(), &installed_package),
             Some(candidates[1].clone())
         );
 
@@ -568,13 +585,13 @@ mod tests {
         };
         let installed_package = None;
         assert_eq!(
-            resolve_dependency(&dependency, &candidates, &installed_package),
+            resolve_dependency(&dependency, candidates.clone(), &installed_package),
             Some(candidates[1].clone())
         );
 
         let installed_package = Some(candidates[3].clone());
         assert_eq!(
-            resolve_dependency(&dependency, &candidates, &installed_package),
+            resolve_dependency(&dependency, candidates.clone(), &installed_package),
             Some(candidates[1].clone())
         );
 
@@ -591,19 +608,19 @@ mod tests {
         };
         let installed_package = None;
         assert_eq!(
-            resolve_dependency(&dependency, &candidates, &installed_package),
+            resolve_dependency(&dependency, candidates.clone(), &installed_package),
             Some(candidates[0].clone())
         );
 
         let installed_package = Some(candidates[1].clone());
         assert_eq!(
-            resolve_dependency(&dependency, &candidates, &installed_package),
+            resolve_dependency(&dependency, candidates.clone(), &installed_package),
             Some(candidates[1].clone())
         );
 
         let installed_package = Some(candidates[3].clone());
         assert_eq!(
-            resolve_dependency(&dependency, &candidates, &installed_package),
+            resolve_dependency(&dependency, candidates.clone(), &installed_package),
             Some(candidates[0].clone())
         );
 
@@ -620,19 +637,19 @@ mod tests {
         };
         let installed_package = None;
         assert_eq!(
-            resolve_dependency(&dependency, &candidates, &installed_package),
+            resolve_dependency(&dependency, candidates.clone(), &installed_package),
             Some(candidates[0].clone())
         );
 
         let installed_package = Some(candidates[1].clone());
         assert_eq!(
-            resolve_dependency(&dependency, &candidates, &installed_package),
+            resolve_dependency(&dependency, candidates.clone(), &installed_package),
             Some(candidates[1].clone())
         );
 
         let installed_package = Some(candidates[2].clone());
         assert_eq!(
-            resolve_dependency(&dependency, &candidates, &installed_package),
+            resolve_dependency(&dependency, candidates.clone(), &installed_package),
             Some(candidates[0].clone())
         );
     }

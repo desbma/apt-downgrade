@@ -84,7 +84,7 @@ fn main() {
             apt::get_cache_package_versions(&dependency.package_name, &apt::APT_ENV);
         // TODO add remote versions
         let resolved_package =
-            apt::resolve_dependency(&dependency, &package_candidates, &installed_package)
+            apt::resolve_dependency(&dependency, package_candidates, &installed_package)
                 .unwrap_or_else(|| panic!("Unable to resolve dependency {:?}", dependency));
 
         progress += 1;
