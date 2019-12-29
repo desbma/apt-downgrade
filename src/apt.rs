@@ -193,6 +193,9 @@ fn get_dependencies_cache(
         .lines()
         .find(|l| l.as_ref().unwrap().starts_with(line_prefix))
         .ok_or_else(|| SimpleError::new("Unexpected apt-cache output"))??;
+
+    // TODO parse multiple version constraints for a single package
+
     for package_desc in package_desc_line
         .split_at(line_prefix.len())
         .1
@@ -279,9 +282,6 @@ pub fn resolve_dependency(
 ) -> Option<Package> {
     let mut matching_candidates: Box<dyn std::iter::Iterator<Item = &Package>> =
         Box::new(candidates.iter());
-
-    // TODO sort candidates by version
-
     for constraint in &dependency.version_constraints {
         let filter_predicate: Box<dyn Fn(&&Package) -> bool> = match constraint.version_relation {
             PackageVersionRelation::Any => Box::new(|_p| true),
