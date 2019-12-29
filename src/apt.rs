@@ -56,12 +56,19 @@ pub enum PackageVersionRelation {
     StriclySuperior,
 }
 
+/// Package version constraint
+#[derive(Debug)]
+pub struct PackageVersionConstaint {
+    pub version: PackageVersion,
+    pub version_relation: PackageVersionRelation,
+}
+
 /// Package dependency
 #[derive(Debug)]
 pub struct PackageDependency {
-    pub package: Package,
+    pub package_name: String,
 
-    pub version_relation: PackageVersionRelation,
+    pub version_constraints: Vec<PackageVersionConstaint>,
 }
 
 /// APT environement configuration values
@@ -222,14 +229,13 @@ fn get_dependencies_cache(
         };
 
         deps.push_back(PackageDependency {
-            package: Package {
-                name: package_name,
+            package_name,
+            version_constraints: vec![PackageVersionConstaint {
                 version: PackageVersion {
                     string: package_version.to_string(),
                 },
-                arch: None,
-            },
-            version_relation: package_version_relation,
+                version_relation: package_version_relation,
+            }],
         });
     }
 
@@ -273,21 +279,15 @@ pub fn resolve_dependency(
 ) -> Option<Package> {
     // TODO handle multiple contraints for a single version
 
-    let filter_predicate: Box<dyn Fn(&&Package) -> bool> = match dependency.version_relation {
+    let constraint = &dependency.version_constraints[0];
+
+    let filter_predicate: Box<dyn Fn(&&Package) -> bool> = match constraint.version_relation {
         PackageVersionRelation::Any => Box::new(|_p| true),
-        PackageVersionRelation::StrictlyInferior => {
-            Box::new(|p| p.version < dependency.package.version)
-        }
-        PackageVersionRelation::InferiorOrEqual => {
-            Box::new(|p| p.version <= dependency.package.version)
-        }
-        PackageVersionRelation::Equal => Box::new(|p| p.version == dependency.package.version),
-        PackageVersionRelation::SuperiorOrEqual => {
-            Box::new(|p| p.version >= dependency.package.version)
-        }
-        PackageVersionRelation::StriclySuperior => {
-            Box::new(|p| p.version > dependency.package.version)
-        }
+        PackageVersionRelation::StrictlyInferior => Box::new(|p| p.version < constraint.version),
+        PackageVersionRelation::InferiorOrEqual => Box::new(|p| p.version <= constraint.version),
+        PackageVersionRelation::Equal => Box::new(|p| p.version == constraint.version),
+        PackageVersionRelation::SuperiorOrEqual => Box::new(|p| p.version >= constraint.version),
+        PackageVersionRelation::StriclySuperior => Box::new(|p| p.version > constraint.version),
     };
 
     if let Some(installed_package) = installed_package {

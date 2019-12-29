@@ -64,12 +64,11 @@ fn main() {
     // Initial queue states
     let mut to_resolve: VecDeque<apt::PackageDependency> = VecDeque::new();
     to_resolve.push_back(apt::PackageDependency {
-        package: apt::Package {
-            name: cl_args.package_name,
+        package_name: cl_args.package_name,
+        version_constraints: vec![apt::PackageVersionConstaint {
             version: cl_args.package_version,
-            arch: None,
-        },
-        version_relation: apt::PackageVersionRelation::Equal,
+            version_relation: apt::PackageVersionRelation::Equal,
+        }],
     });
     let mut to_install: VecDeque<apt::Package> = VecDeque::new();
 
@@ -80,9 +79,9 @@ fn main() {
     let mut progress = 0;
     while let Some(dependency) = to_resolve.pop_front() {
         // Resolve version
-        let installed_package = apt::get_installed_version(&dependency.package.name);
+        let installed_package = apt::get_installed_version(&dependency.package_name);
         let package_candidates =
-            apt::get_cache_package_versions(&dependency.package.name, &apt::APT_ENV);
+            apt::get_cache_package_versions(&dependency.package_name, &apt::APT_ENV);
         // TODO add remote versions
         let resolved_package =
             apt::resolve_dependency(&dependency, &package_candidates, &installed_package)
