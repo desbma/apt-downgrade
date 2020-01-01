@@ -8,7 +8,6 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use glob::glob;
-use itertools::join;
 use simple_error::SimpleError;
 
 /// Package version with comparison traits
@@ -421,20 +420,23 @@ pub fn get_cache_package_versions(
 }
 
 /// Build apt install command line for a list of packages
-pub fn build_install_cmdline(packages: VecDeque<Package>, apt_env: &AptEnv) -> String {
-    format!(
-        "apt-get install -V --no-install-recommends {}",
-        join(
-            packages.iter().map(|p| format!(
-                "{}{}_{}_{}.deb",
-                apt_env.cache_dir,
-                p.name,
-                p.version,
-                p.arch.as_ref().unwrap()
-            )),
-            " "
+pub fn build_install_cmdline(packages: VecDeque<Package>, apt_env: &AptEnv) -> Vec<String> {
+    let mut cmd = vec![
+        "apt-get".to_string(),
+        "install".to_string(),
+        "-V".to_string(),
+        "--no-install-recommends".to_string(),
+    ];
+    cmd.extend(packages.iter().map(|p| {
+        format!(
+            "{}{}_{}_{}.deb",
+            apt_env.cache_dir,
+            p.name,
+            p.version,
+            p.arch.as_ref().unwrap()
         )
-    )
+    }));
+    cmd
 }
 
 #[cfg(test)]
@@ -465,7 +467,14 @@ mod tests {
         ]);
         assert_eq!(
             build_install_cmdline(packages, &apt_env),
-            "apt-get install -V --no-install-recommends /cache/dir/package1_1.2.3.4_thearch.deb /cache/dir/package2_4.3.2-a1_all.deb"
+            vec![
+                "apt-get",
+                "install",
+                "-V",
+                "--no-install-recommends",
+                "/cache/dir/package1_1.2.3.4_thearch.deb",
+                "/cache/dir/package2_4.3.2-a1_all.deb"
+            ]
         );
     }
 

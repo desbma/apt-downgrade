@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::io::{self, Write};
 
 use clap::{App, Arg};
+use itertools::join;
 
 #[macro_use]
 extern crate lazy_static;
@@ -118,7 +119,7 @@ fn main() {
     } else {
         let install_cmdline = apt::build_install_cmdline(to_install, &apt::APT_ENV);
         if cl_args.dry_run {
-            println!("Run:\n{}", install_cmdline);
+            println!("Run:\n{}", join(install_cmdline, " "));
         } else {
             unimplemented!();
         }
