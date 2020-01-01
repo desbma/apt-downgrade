@@ -264,10 +264,10 @@ fn get_dependencies_remote(
 pub fn get_dependencies(package: Package, apt_env: &AptEnv) -> VecDeque<PackageDependency> {
     match get_dependencies_cache(&package, &apt_env) {
         Ok(deps) => deps,
-        Err(e) => {
+        Err(err) => {
             println!(
                 "Failed to get dependencies for package {} from cache: {}",
-                package.name, e
+                package.name, err
             );
             get_dependencies_remote(&package, &apt_env).unwrap()
         }
