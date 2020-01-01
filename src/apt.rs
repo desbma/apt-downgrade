@@ -99,7 +99,7 @@ fn read_apt_env() -> Result<AptEnv, Box<dyn error::Error>> {
     if !output.status.success() {
         return Err(Box::new(SimpleError::new("apt-config failed")));
     }
-    let lines: Vec<String> = output.stdout.lines().map(|l| l.unwrap()).collect();
+    let lines: Vec<String> = output.stdout.lines().filter_map(Result::ok).collect();
     let cache_root_dir = lines
         .iter()
         .find(|l| l.starts_with("CACHE_ROOT_DIR="))
@@ -191,8 +191,9 @@ fn get_dependencies_cache(
     let package_desc_line = output
         .stdout
         .lines()
-        .find(|l| l.as_ref().unwrap().starts_with(line_prefix))
-        .ok_or_else(|| SimpleError::new("Unexpected apt-cache output"))??;
+        .filter_map(Result::ok)
+        .find(|l| l.starts_with(line_prefix))
+        .ok_or_else(|| SimpleError::new("Unexpected apt-cache output"))?;
 
     // TODO parse multiple version constraints for a single package
 
@@ -266,8 +267,8 @@ pub fn get_dependencies(package: Package, apt_env: &AptEnv) -> VecDeque<PackageD
         Ok(deps) => deps,
         Err(e) => {
             println!(
-                "Failed to get dependencies for package {:?} from cache: {}",
-                package, e
+                "Failed to get dependencies for package {} from cache: {}",
+                package.name, e
             );
             get_dependencies_remote(&package, &apt_env).unwrap()
         }
@@ -312,7 +313,7 @@ pub fn resolve_dependency(
     }
 
     // Return the first match
-    Some(matching_candidates[0].clone())
+    matching_candidates.get(0).cloned().cloned()
 }
 
 /// Get the package version currently installed if any
@@ -331,8 +332,8 @@ pub fn get_installed_version(package_name: &str) -> Option<Package> {
     let package_version_line = output
         .stdout
         .lines()
-        .find(|l| l.as_ref().unwrap().starts_with(line_prefix))?
-        .ok()?;
+        .filter_map(Result::ok)
+        .find(|l| l.starts_with(line_prefix))?;
     let package_version = package_version_line.split_at(line_prefix.len()).1;
 
     // Get architecture
@@ -349,8 +350,8 @@ pub fn get_installed_version(package_name: &str) -> Option<Package> {
     let package_arch_line = output
         .stdout
         .lines()
-        .find(|l| l.as_ref().unwrap().starts_with(line_prefix))?
-        .ok()?;
+        .filter_map(Result::ok)
+        .find(|l| l.starts_with(line_prefix))?;
     let package_arch = package_arch_line.split_at(line_prefix.len()).1;
 
     Some(Package {
@@ -363,32 +364,44 @@ pub fn get_installed_version(package_name: &str) -> Option<Package> {
 }
 
 /// Get all version of a package currently in local cache
-pub fn get_cache_package_versions(package_name: &str, apt_env: &AptEnv) -> VecDeque<Package> {
+pub fn get_cache_package_versions(
+    package_name: &str,
+    apt_env: &AptEnv,
+) -> Result<VecDeque<Package>, Box<dyn error::Error>> {
     let mut versions = VecDeque::new();
 
     for arch in &[apt_env.arch.clone(), "all".to_string(), "any".to_string()] {
         for path_entry in glob(&format!(
             "{}{}_*_{}.deb",
             apt_env.cache_dir, package_name, arch
-        ))
-        .unwrap()
+        ))?
         .filter_map(Result::ok)
         {
             let path = path_entry
                 .file_name()
-                .unwrap()
+                .ok_or_else(|| {
+                    SimpleError::new(format!("Unexpected entry in {}", apt_env.cache_dir))
+                })?
                 .to_os_string()
                 .into_string()
-                .unwrap();
+                .or_else(|_| {
+                    Err(SimpleError::new(format!(
+                        "Unexpected entry in {}",
+                        apt_env.cache_dir
+                    )))
+                })?;
             let mut tokens = path.split('_').rev();
             let arch = tokens
                 .next()
-                .unwrap()
+                .ok_or_else(|| SimpleError::new(format!("Unexpected package filename: {}", path)))?
                 .split('.')
                 .nth(0)
-                .unwrap()
+                .ok_or_else(|| SimpleError::new(format!("Unexpected package filename: {}", path)))?
                 .to_string();
-            let version = tokens.next().unwrap().to_string();
+            let version = tokens
+                .next()
+                .ok_or_else(|| SimpleError::new(format!("Unexpected package filename: {}", path)))?
+                .to_string();
             versions.push_back(Package {
                 name: package_name.to_string(),
                 version: PackageVersion {
@@ -404,7 +417,7 @@ pub fn get_cache_package_versions(package_name: &str, apt_env: &AptEnv) -> VecDe
     let mut versions_vec = Vec::from(versions);
     versions_vec.sort_unstable_by_key(|d| Reverse(d.version.clone()));
 
-    VecDeque::from(versions_vec)
+    Ok(VecDeque::from(versions_vec))
 }
 
 /// Build apt install command line for a list of packages

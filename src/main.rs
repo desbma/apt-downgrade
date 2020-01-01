@@ -81,7 +81,7 @@ fn main() {
         // Resolve version
         let installed_package = apt::get_installed_version(&dependency.package_name);
         let package_candidates =
-            apt::get_cache_package_versions(&dependency.package_name, &apt::APT_ENV);
+            apt::get_cache_package_versions(&dependency.package_name, &apt::APT_ENV).unwrap();
         // TODO add remote versions
         let resolved_package =
             apt::resolve_dependency(&dependency, package_candidates, &installed_package)
