@@ -71,7 +71,7 @@ fn main() {
             version_relation: apt::PackageVersionRelation::Equal,
         }],
     });
-    let mut to_install: VecDeque<apt::Package> = VecDeque::new();
+    let mut to_install: Vec<apt::Package> = Vec::new();
 
     print!("Analyzing dependencies...");
     io::stdout().flush().unwrap();
@@ -105,11 +105,11 @@ fn main() {
         }
 
         // Add to install queue
-        to_install.push_back(resolved_package.clone());
+        to_install.push(resolved_package.clone());
 
         // Get package dependencies
-        let mut deps = apt::get_dependencies(resolved_package, &apt::APT_ENV);
-        to_resolve.append(&mut deps);
+        let deps = apt::get_dependencies(resolved_package, &apt::APT_ENV);
+        to_resolve.extend(deps);
     }
     println!();
 

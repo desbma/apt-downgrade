@@ -1,5 +1,4 @@
 use std::cmp::{Ordering, Reverse};
-use std::collections::VecDeque;
 use std::error;
 use std::fmt;
 use std::io::BufRead;
@@ -156,8 +155,8 @@ impl error::Error for CommandError {
 fn get_dependencies_cache(
     package: &Package,
     apt_env: &AptEnv,
-) -> Result<VecDeque<PackageDependency>, Box<dyn error::Error>> {
-    let mut deps = VecDeque::new();
+) -> Result<Vec<PackageDependency>, Box<dyn error::Error>> {
+    let mut deps = Vec::new();
 
     let deb_filepath = format!(
         "{}{}_{}_{}.deb",
@@ -231,7 +230,7 @@ fn get_dependencies_cache(
             }
         };
 
-        deps.push_back(PackageDependency {
+        deps.push(PackageDependency {
             package_name,
             version_constraints: vec![PackageVersionConstaint {
                 version: PackageVersion {
@@ -248,7 +247,7 @@ fn get_dependencies_cache(
 fn get_dependencies_remote(
     _package: &Package,
     _apt_env: &AptEnv,
-) -> Result<VecDeque<PackageDependency>, Box<dyn error::Error>> {
+) -> Result<Vec<PackageDependency>, Box<dyn error::Error>> {
     // TODO Build download dir
 
     // TODO Check if already downloaded
@@ -261,7 +260,7 @@ fn get_dependencies_remote(
 }
 
 /// Get dependencies for a package
-pub fn get_dependencies(package: Package, apt_env: &AptEnv) -> VecDeque<PackageDependency> {
+pub fn get_dependencies(package: Package, apt_env: &AptEnv) -> Vec<PackageDependency> {
     match get_dependencies_cache(&package, &apt_env) {
         Ok(deps) => deps,
         Err(err) => {
@@ -277,7 +276,7 @@ pub fn get_dependencies(package: Package, apt_env: &AptEnv) -> VecDeque<PackageD
 /// Find the best package version that satisfies a dependency constraint
 pub fn resolve_dependency(
     dependency: &PackageDependency,
-    candidates: VecDeque<Package>,
+    candidates: Vec<Package>,
     installed_package: &Option<Package>,
 ) -> Option<Package> {
     let mut matching_candidates: Box<dyn std::iter::Iterator<Item = &Package>> =
@@ -366,8 +365,8 @@ pub fn get_installed_version(package_name: &str) -> Option<Package> {
 pub fn get_cache_package_versions(
     package_name: &str,
     apt_env: &AptEnv,
-) -> Result<VecDeque<Package>, Box<dyn error::Error>> {
-    let mut versions = VecDeque::new();
+) -> Result<Vec<Package>, Box<dyn error::Error>> {
+    let mut versions = Vec::new();
 
     for arch in &[apt_env.arch.clone(), "all".to_string(), "any".to_string()] {
         for path_entry in glob(&format!(
@@ -401,7 +400,7 @@ pub fn get_cache_package_versions(
                 .next()
                 .ok_or_else(|| SimpleError::new(format!("Unexpected package filename: {}", path)))?
                 .to_string();
-            versions.push_back(Package {
+            versions.push(Package {
                 name: package_name.to_string(),
                 version: PackageVersion {
                     string: version.to_string(),
@@ -412,15 +411,13 @@ pub fn get_cache_package_versions(
     }
 
     // Sort
-    // TODO find a way to sort a VecDeque inplace
-    let mut versions_vec = Vec::from(versions);
-    versions_vec.sort_unstable_by_key(|d| Reverse(d.version.clone()));
+    versions.sort_unstable_by_key(|d| Reverse(d.version.clone()));
 
-    Ok(VecDeque::from(versions_vec))
+    Ok(versions)
 }
 
 /// Build apt install command line for a list of packages
-pub fn build_install_cmdline(packages: VecDeque<Package>, apt_env: &AptEnv) -> Vec<String> {
+pub fn build_install_cmdline(packages: Vec<Package>, apt_env: &AptEnv) -> Vec<String> {
     let mut cmd = vec![
         "apt-get".to_string(),
         "install".to_string(),
@@ -449,7 +446,7 @@ mod tests {
             cache_dir: "/cache/dir/".to_string(),
             arch: "thearch".to_string(),
         };
-        let packages: VecDeque<Package> = VecDeque::from(vec![
+        let packages: Vec<Package> = vec![
             Package {
                 name: "package1".to_string(),
                 version: PackageVersion {
@@ -464,7 +461,7 @@ mod tests {
                 },
                 arch: Some("all".to_string()),
             },
-        ]);
+        ];
         assert_eq!(
             build_install_cmdline(packages, &apt_env),
             vec![
@@ -480,7 +477,7 @@ mod tests {
 
     #[test]
     fn test_resolve_dependency() {
-        let candidates = VecDeque::from(vec![
+        let candidates = vec![
             Package {
                 name: "p1".to_string(),
                 version: PackageVersion {
@@ -516,7 +513,7 @@ mod tests {
                 },
                 arch: Some("4rch".to_string()),
             },
-        ]);
+        ];
 
         //
         // Any
