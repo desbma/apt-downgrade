@@ -69,6 +69,35 @@ pub struct PackageDependency {
     pub version_constraints: Vec<PackageVersionConstaint>,
 }
 
+impl fmt::Display for PackageDependency {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for version_constraint in &self.version_constraints {
+            match version_constraint.version_relation {
+                PackageVersionRelation::Any => {
+                    write!(f, "{}", self.package_name)?;
+                }
+                PackageVersionRelation::StrictlyInferior => {
+                    write!(f, "{}<<{}", self.package_name, version_constraint.version)?;
+                }
+                PackageVersionRelation::InferiorOrEqual => {
+                    write!(f, "{}<={}", self.package_name, version_constraint.version)?;
+                }
+                PackageVersionRelation::Equal => {
+                    write!(f, "{}={}", self.package_name, version_constraint.version)?;
+                }
+                PackageVersionRelation::SuperiorOrEqual => {
+                    write!(f, "{}>={}", self.package_name, version_constraint.version)?;
+                }
+                PackageVersionRelation::StriclySuperior => {
+                    write!(f, "{}>>{}", self.package_name, version_constraint.version)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
 /// APT environement configuration values
 pub struct AptEnv {
     arch: String,

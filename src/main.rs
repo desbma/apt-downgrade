@@ -86,7 +86,7 @@ fn main() {
         // TODO add remote versions
         let resolved_package =
             apt::resolve_dependency(&dependency, package_candidates, &installed_package)
-                .unwrap_or_else(|| panic!("Unable to resolve dependency {:?}", dependency));
+                .unwrap_or_else(|| panic!("Unable to resolve dependency {}", dependency));
 
         progress += 1;
         print!("\rAnalyzing {} dependencies...", progress);
