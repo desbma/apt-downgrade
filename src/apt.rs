@@ -326,7 +326,7 @@ pub fn get_installed_version(package_name: &str, apt_env: &AptEnv) -> Option<Pac
         .find(|l| l.starts_with(line_prefix))?;
     let package_version = package_version_line.split_at(line_prefix.len()).1;
 
-    // Get architecture
+    // Get filename
     let output = Command::new("apt-cache")
         .args(vec!["show", package_name])
         .env("LANG", "C")
@@ -344,7 +344,7 @@ pub fn get_installed_version(package_name: &str, apt_env: &AptEnv) -> Option<Pac
         .to_str()?
         .to_string();
 
-    // Get filename
+    // Get architecture
     let line_prefix = "Architecture: ";
     let package_arch_line = lines.iter().find(|l| l.starts_with(line_prefix))?;
     let package_arch = package_arch_line.split_at(line_prefix.len()).1;
