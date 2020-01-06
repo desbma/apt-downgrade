@@ -7,6 +7,7 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use glob::glob;
+use itertools::join;
 use simple_error::SimpleError;
 
 /// Package version with comparison traits
@@ -161,17 +162,15 @@ fn read_apt_env() -> Result<AptEnv, Box<dyn error::Error>> {
 #[derive(Debug)]
 struct CommandError {
     status: std::process::ExitStatus,
+    cmd: Vec<String>,
 }
 
 impl fmt::Display for CommandError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Command {} ", join(&self.cmd, " "))?;
         match self.status.code() {
-            Some(code) => write!(f, "Command returned {}", code),
-            None => write!(
-                f,
-                "Command killed by signal {}",
-                self.status.signal().unwrap()
-            ),
+            Some(code) => write!(f, "returned {}", code),
+            None => write!(f, "killed by signal {}", self.status.signal().unwrap()),
         }
     }
 }
@@ -195,13 +194,16 @@ pub fn get_dependencies(package: Package) -> Result<Vec<PackageDependency>, Box<
     };
 
     let output = Command::new("apt-cache")
-        .args(apt_args)
+        .args(&apt_args)
         .env("LANG", "C")
         .stderr(Stdio::null())
         .output()?;
     if !output.status.success() {
+        let mut cmd: Vec<String> = vec!["apt-cache".to_string()];
+        cmd.extend(apt_args.iter().map(|s| (*s).to_string()));
         return Err(Box::new(CommandError {
             status: output.status,
+            cmd,
         }));
     }
     let line_prefix = "Depends: ";
@@ -305,7 +307,7 @@ pub fn resolve_dependency(
 }
 
 /// Get the package version currently installed if any
-pub fn get_installed_version(package_name: &str) -> Option<Package> {
+pub fn get_installed_version(package_name: &str, apt_env: &AptEnv) -> Option<Package> {
     // Get version
     let output = Command::new("apt-cache")
         .args(vec!["policy", package_name])
@@ -334,15 +336,18 @@ pub fn get_installed_version(package_name: &str) -> Option<Package> {
     if !output.status.success() {
         return None;
     }
-    let line_prefix = "Architecture: ";
-    let package_arch_line = output
-        .stdout
-        .lines()
-        .filter_map(Result::ok)
-        .find(|l| l.starts_with(line_prefix))?;
-    let package_arch = package_arch_line.split_at(line_prefix.len()).1;
+    let lines: Vec<String> = output.stdout.lines().filter_map(Result::ok).collect();
+    let line_prefix = "Filename: ";
+    let package_filename_line = lines.iter().find(|l| l.starts_with(line_prefix))?;
+    let package_filename = Path::new(package_filename_line.split_at(line_prefix.len()).1)
+        .file_name()?
+        .to_str()?
+        .to_string();
 
-    // TODO build cache path from Filename: line
+    // Get filename
+    let line_prefix = "Architecture: ";
+    let package_arch_line = lines.iter().find(|l| l.starts_with(line_prefix))?;
+    let package_arch = package_arch_line.split_at(line_prefix.len()).1;
 
     Some(Package {
         name: package_name.to_string(),
@@ -350,7 +355,7 @@ pub fn get_installed_version(package_name: &str) -> Option<Package> {
             string: package_version.to_string(),
         },
         arch: Some(package_arch.to_string()),
-        filepath: None,
+        filepath: Some(format!("{}{}", apt_env.cache_dir, package_filename)),
     })
 }
 

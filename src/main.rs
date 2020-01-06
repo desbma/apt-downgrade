@@ -80,7 +80,7 @@ fn main() {
     let mut progress = 0;
     while let Some(dependency) = to_resolve.pop_front() {
         // Resolve version
-        let installed_package = apt::get_installed_version(&dependency.package_name);
+        let installed_package = apt::get_installed_version(&dependency.package_name, &apt::APT_ENV);
         let package_candidates =
             apt::get_cache_package_versions(&dependency.package_name, &apt::APT_ENV).unwrap();
         let resolved_package =
