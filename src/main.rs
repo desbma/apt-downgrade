@@ -83,7 +83,6 @@ fn main() {
         let installed_package = apt::get_installed_version(&dependency.package_name);
         let package_candidates =
             apt::get_cache_package_versions(&dependency.package_name, &apt::APT_ENV).unwrap();
-        // TODO add remote versions
         let resolved_package =
             apt::resolve_dependency(&dependency, package_candidates, &installed_package)
                 .unwrap_or_else(|| panic!("Unable to resolve dependency {}", dependency));
@@ -108,7 +107,7 @@ fn main() {
         to_install.push(resolved_package.clone());
 
         // Get package dependencies
-        let deps = apt::get_dependencies(resolved_package, &apt::APT_ENV);
+        let deps = apt::get_dependencies(resolved_package).unwrap();
         to_resolve.extend(deps);
     }
     println!();
@@ -117,7 +116,7 @@ fn main() {
     if to_install.is_empty() {
         println!("Nothing to do");
     } else {
-        let install_cmdline = apt::build_install_cmdline(to_install, &apt::APT_ENV);
+        let install_cmdline = apt::build_install_cmdline(to_install);
         if cl_args.dry_run {
             println!("Run:\n{}", join(install_cmdline, " "));
         } else {

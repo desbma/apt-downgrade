@@ -41,6 +41,8 @@ pub struct Package {
     pub version: PackageVersion,
 
     pub arch: Option<String>,
+
+    pub filepath: Option<String>,
 }
 
 /// Dependency version relation
@@ -180,23 +182,11 @@ impl error::Error for CommandError {
     }
 }
 
-/// Get dependencies for a package using local package cache
-fn get_dependencies_cache(
-    package: &Package,
-    apt_env: &AptEnv,
-) -> Result<Vec<PackageDependency>, Box<dyn error::Error>> {
+/// Get dependencies for a package
+pub fn get_dependencies(package: Package) -> Result<Vec<PackageDependency>, Box<dyn error::Error>> {
     let mut deps = Vec::new();
 
-    let deb_filepath = format!(
-        "{}{}_{}_{}.deb",
-        apt_env.cache_dir,
-        package.name,
-        package.version,
-        package
-            .arch
-            .as_ref()
-            .ok_or_else(|| SimpleError::new("Missing package architecture"))?
-    );
+    let deb_filepath = package.filepath.unwrap();
     let spec = format!("{}={}", package.name, package.version);
     let apt_args = if Path::new(&deb_filepath).is_file() {
         vec!["show", &deb_filepath]
@@ -271,35 +261,6 @@ fn get_dependencies_cache(
     }
 
     Ok(deps)
-}
-
-fn get_dependencies_remote(
-    _package: &Package,
-    _apt_env: &AptEnv,
-) -> Result<Vec<PackageDependency>, Box<dyn error::Error>> {
-    // TODO Build download dir
-
-    // TODO Check if already downloaded
-
-    // TODO get http://ftp.debian.org/debian/pool/main/c/chromium/chromium_78.0.3904.108-1~deb10u1_amd64.deb
-
-    // TODO get deps from deb
-
-    unimplemented!();
-}
-
-/// Get dependencies for a package
-pub fn get_dependencies(package: Package, apt_env: &AptEnv) -> Vec<PackageDependency> {
-    match get_dependencies_cache(&package, &apt_env) {
-        Ok(deps) => deps,
-        Err(err) => {
-            println!(
-                "Failed to get dependencies for package {} from cache: {}",
-                package.name, err
-            );
-            get_dependencies_remote(&package, &apt_env).unwrap()
-        }
-    }
 }
 
 /// Find the best package version that satisfies a dependency constraint
@@ -381,12 +342,15 @@ pub fn get_installed_version(package_name: &str) -> Option<Package> {
         .find(|l| l.starts_with(line_prefix))?;
     let package_arch = package_arch_line.split_at(line_prefix.len()).1;
 
+    // TODO build cache path from Filename: line
+
     Some(Package {
         name: package_name.to_string(),
         version: PackageVersion {
             string: package_version.to_string(),
         },
         arch: Some(package_arch.to_string()),
+        filepath: None,
     })
 }
 
@@ -428,13 +392,15 @@ pub fn get_cache_package_versions(
             let version = tokens
                 .next()
                 .ok_or_else(|| SimpleError::new(format!("Unexpected package filename: {}", path)))?
-                .to_string();
+                .to_string()
+                .replace("%3a", ":");
             versions.push(Package {
                 name: package_name.to_string(),
                 version: PackageVersion {
                     string: version.to_string(),
                 },
                 arch: Some(arch.to_string()),
+                filepath: Some(path),
             });
         }
     }
@@ -446,22 +412,18 @@ pub fn get_cache_package_versions(
 }
 
 /// Build apt install command line for a list of packages
-pub fn build_install_cmdline(packages: Vec<Package>, apt_env: &AptEnv) -> Vec<String> {
+pub fn build_install_cmdline(packages: Vec<Package>) -> Vec<String> {
     let mut cmd = vec![
         "apt-get".to_string(),
         "install".to_string(),
         "-V".to_string(),
         "--no-install-recommends".to_string(),
     ];
-    cmd.extend(packages.iter().map(|p| {
-        format!(
-            "{}{}_{}_{}.deb",
-            apt_env.cache_dir,
-            p.name,
-            p.version,
-            p.arch.as_ref().unwrap()
-        )
-    }));
+    cmd.extend(
+        packages
+            .iter()
+            .map(|p| p.filepath.as_ref().unwrap().clone()),
+    );
     cmd
 }
 
@@ -471,35 +433,33 @@ mod tests {
 
     #[test]
     fn test_build_install_cmdline() {
-        let apt_env = AptEnv {
-            cache_dir: "/cache/dir/".to_string(),
-            arch: "thearch".to_string(),
-        };
         let packages: Vec<Package> = vec![
             Package {
                 name: "package1".to_string(),
                 version: PackageVersion {
                     string: "1.2.3.4".to_string(),
                 },
-                arch: Some("thearch".to_string()),
+                arch: None,
+                filepath: Some("/p1".to_string()),
             },
             Package {
                 name: "package2".to_string(),
                 version: PackageVersion {
                     string: "4.3.2-a1".to_string(),
                 },
-                arch: Some("all".to_string()),
+                arch: None,
+                filepath: Some("/p2".to_string()),
             },
         ];
         assert_eq!(
-            build_install_cmdline(packages, &apt_env),
+            build_install_cmdline(packages),
             vec![
                 "apt-get",
                 "install",
                 "-V",
                 "--no-install-recommends",
-                "/cache/dir/package1_1.2.3.4_thearch.deb",
-                "/cache/dir/package2_4.3.2-a1_all.deb"
+                "/p1",
+                "/p2"
             ]
         );
     }
@@ -512,35 +472,40 @@ mod tests {
                 version: PackageVersion {
                     string: "1.0.3".to_string(),
                 },
-                arch: Some("4rch".to_string()),
+                arch: None,
+                filepath: None,
             },
             Package {
                 name: "p1".to_string(),
                 version: PackageVersion {
                     string: "1.0.2".to_string(),
                 },
-                arch: Some("4rch".to_string()),
+                arch: None,
+                filepath: None,
             },
             Package {
                 name: "p1".to_string(),
                 version: PackageVersion {
                     string: "1.0.1".to_string(),
                 },
-                arch: Some("4rch".to_string()),
+                arch: None,
+                filepath: None,
             },
             Package {
                 name: "p1".to_string(),
                 version: PackageVersion {
                     string: "1.0.0".to_string(),
                 },
-                arch: Some("4rch".to_string()),
+                arch: None,
+                filepath: None,
             },
             Package {
                 name: "p1".to_string(),
                 version: PackageVersion {
                     string: "0.9.9".to_string(),
                 },
-                arch: Some("4rch".to_string()),
+                arch: None,
+                filepath: None,
             },
         ];
 
