@@ -405,7 +405,12 @@ pub fn get_cache_package_versions(
                     string: version.to_string(),
                 },
                 arch: Some(arch.to_string()),
-                filepath: Some(path),
+                filepath: Some(
+                    path_entry
+                        .into_os_string()
+                        .into_string()
+                        .or_else(|_| Err(SimpleError::new("Unable to convert OS string")))?,
+                ),
             });
         }
     }
