@@ -359,7 +359,7 @@ pub fn get_installed_version(package_name: &str, apt_env: &AptEnv) -> Option<Pac
     })
 }
 
-/// Get all version of a package currently in local cache
+/// Get all versions of a package currently in local cache
 pub fn get_cache_package_versions(
     package_name: &str,
     apt_env: &AptEnv,
