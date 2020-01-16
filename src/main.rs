@@ -81,8 +81,10 @@ fn main() {
     while let Some(dependency) = to_resolve.pop_front() {
         // Resolve version
         let installed_package = apt::get_installed_version(&dependency.package_name, &apt::APT_ENV);
-        let package_candidates =
+        let mut package_candidates =
             apt::get_cache_package_versions(&dependency.package_name, &apt::APT_ENV).unwrap();
+        package_candidates
+            .extend(apt::get_remote_package_versions(&dependency.package_name).unwrap());
         let resolved_package =
             apt::resolve_dependency(&dependency, package_candidates, &installed_package)
                 .unwrap_or_else(|| panic!("Unable to resolve dependency {}", dependency));

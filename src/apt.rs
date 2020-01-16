@@ -421,6 +421,16 @@ pub fn get_cache_package_versions(
     Ok(versions)
 }
 
+/// Get all versions of a package from remote API
+pub fn get_remote_package_versions(
+    _package_name: &str,
+) -> Result<Vec<Package>, Box<dyn error::Error>> {
+    // GET https://sources.debian.org/api/src/ocaml/
+    // GET https://sources.debian.org/api/info/package/davfs2/1.5.2-1/
+
+    unimplemented!();
+}
+
 /// Build apt install command line for a list of packages
 pub fn build_install_cmdline(packages: Vec<Package>) -> Vec<String> {
     let mut cmd = vec![
