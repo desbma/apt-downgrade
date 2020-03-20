@@ -85,7 +85,8 @@ fn main() {
             apt::get_cache_package_versions(&dependency.package_name, &apt::APT_ENV).unwrap();
         package_candidates
             .extend(apt::get_remote_package_versions(&dependency.package_name).unwrap());
-        let resolved_package =
+
+        let mut resolved_package =
             apt::resolve_dependency(&dependency, package_candidates, &installed_package)
                 .unwrap_or_else(|| panic!("Unable to resolve dependency {}", dependency));
 
@@ -105,12 +106,12 @@ fn main() {
             }
         }
 
+        // Get package dependencies
+        let deps = apt::get_dependencies(&mut resolved_package, &apt::APT_ENV).unwrap();
+        to_resolve.extend(deps);
+
         // Add to install queue
         to_install.push(resolved_package.clone());
-
-        // Get package dependencies
-        let deps = apt::get_dependencies(resolved_package).unwrap();
-        to_resolve.extend(deps);
     }
     println!();
 

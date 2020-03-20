@@ -1,13 +1,18 @@
 use std::cmp::{Ordering, Reverse};
 use std::error;
 use std::fmt;
-use std::io::BufRead;
+use std::fs;
+use std::fs::File;
+use std::io::{copy, BufRead};
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
+use directories::ProjectDirs;
 use glob::glob;
 use itertools::join;
+use reqwest::StatusCode;
+use serde::Deserialize;
 use simple_error::SimpleError;
 
 /// Package version with comparison traits
@@ -44,6 +49,8 @@ pub struct Package {
     pub arch: Option<String>,
 
     pub filepath: Option<String>,
+
+    pub area: Option<String>,
 }
 
 /// Dependency version relation
@@ -181,11 +188,69 @@ impl error::Error for CommandError {
     }
 }
 
+fn download_package(package: &mut Package, apt_env: &AptEnv) -> Result<(), Box<dyn error::Error>> {
+    // TODO mirror rotation?
+
+    // Build target dir
+    let dirs = ProjectDirs::from("", "Desbma", "APT Downgrade")
+        .ok_or_else(|| SimpleError::new("Unable to compute cache dir"))?;
+    let cache_dir = dirs.cache_dir();
+    fs::create_dir_all(cache_dir)?;
+
+    for arch in &[apt_env.arch.clone(), "all".to_string(), "any".to_string()] {
+        // Build target filepath
+        let filename = format!(
+            "{}_{}_{}.deb",
+            package.name,
+            package.version.string.replace(":", "%3a"), // TODO better urlescape
+            arch,
+        );
+        let filepath = cache_dir.join(&filename);
+
+        // Build url
+        let url = format!(
+            "http://ftp.debian.org/debian/pool/{}/{}/{}/{}",
+            package.area.as_ref().unwrap(),
+            package.name.chars().next().unwrap(),
+            package.name,
+            filename
+        );
+
+        // Download
+        println!("Downloading {} to {:?}", url, filepath);
+        let mut response = reqwest::blocking::get(&url)?;
+        if response.status() == StatusCode::NOT_FOUND {
+            continue;
+        }
+        let mut target_file = File::create(&filepath)?;
+        copy(&mut response, &mut target_file)?;
+        package.filepath = Some(
+            filepath
+                .into_os_string()
+                .into_string()
+                .or_else(|_| Err(SimpleError::new("Unexpected filename")))?,
+        );
+        package.arch = Some(arch.to_string());
+
+        // All good
+        return Ok(());
+    }
+
+    Err(Box::new(SimpleError::new("Unable to download package")))
+}
+
 /// Get dependencies for a package
-pub fn get_dependencies(package: Package) -> Result<Vec<PackageDependency>, Box<dyn error::Error>> {
+pub fn get_dependencies(
+    mut package: &mut Package,
+    apt_env: &AptEnv,
+) -> Result<Vec<PackageDependency>, Box<dyn error::Error>> {
     let mut deps = Vec::new();
 
-    let deb_filepath = package.filepath.unwrap();
+    if package.filepath.is_none() {
+        download_package(&mut package, &apt_env)?;
+    }
+
+    let deb_filepath = package.filepath.as_ref().unwrap();
     let spec = format!("{}={}", package.name, package.version);
     let apt_args = if Path::new(&deb_filepath).is_file() {
         vec!["show", &deb_filepath]
@@ -356,6 +421,7 @@ pub fn get_installed_version(package_name: &str, apt_env: &AptEnv) -> Option<Pac
         },
         arch: Some(package_arch.to_string()),
         filepath: Some(format!("{}{}", apt_env.cache_dir, package_filename)),
+        area: None,
     })
 }
 
@@ -398,7 +464,7 @@ pub fn get_cache_package_versions(
                 .next()
                 .ok_or_else(|| SimpleError::new(format!("Unexpected package filename: {}", path)))?
                 .to_string()
-                .replace("%3a", ":");
+                .replace("%3a", ":"); // TODO better urlescape
             versions.push(Package {
                 name: package_name.to_string(),
                 version: PackageVersion {
@@ -411,6 +477,7 @@ pub fn get_cache_package_versions(
                         .into_string()
                         .or_else(|_| Err(SimpleError::new("Unable to convert OS string")))?,
                 ),
+                area: None,
             });
         }
     }
@@ -421,14 +488,48 @@ pub fn get_cache_package_versions(
     Ok(versions)
 }
 
+#[derive(Deserialize, Debug)]
+struct JsonPackageInfo {
+    package: String,
+    path: String,
+    pathl: Vec<Vec<String>>,
+    suite: String,
+    #[serde(rename = "type")]
+    type_: String,
+    versions: Vec<JsonPackageVersionInfo>,
+}
+
+#[derive(Deserialize, Debug)]
+struct JsonPackageVersionInfo {
+    area: String,
+    suites: Vec<String>,
+    version: String,
+}
+
 /// Get all versions of a package from remote API
 pub fn get_remote_package_versions(
-    _package_name: &str,
+    package_name: &str,
 ) -> Result<Vec<Package>, Box<dyn error::Error>> {
-    // GET https://sources.debian.org/api/src/ocaml/
+    let mut packages = Vec::new();
+
+    let url = format!("https://sources.debian.org/api/src/{}/", package_name);
+    let json: JsonPackageInfo = reqwest::blocking::get(&url)?.json()?;
+
+    for json_version in json.versions {
+        packages.push(Package {
+            name: package_name.to_string(),
+            version: PackageVersion {
+                string: json_version.version,
+            },
+            arch: None,
+            filepath: None,
+            area: Some(json_version.area),
+        });
+    }
+
     // GET https://sources.debian.org/api/info/package/davfs2/1.5.2-1/
 
-    unimplemented!();
+    Ok(packages)
 }
 
 /// Build apt install command line for a list of packages
@@ -461,6 +562,7 @@ mod tests {
                 },
                 arch: None,
                 filepath: Some("/p1".to_string()),
+                area: None,
             },
             Package {
                 name: "package2".to_string(),
@@ -469,6 +571,7 @@ mod tests {
                 },
                 arch: None,
                 filepath: Some("/p2".to_string()),
+                area: None,
             },
         ];
         assert_eq!(
@@ -494,6 +597,7 @@ mod tests {
                 },
                 arch: None,
                 filepath: None,
+                area: None,
             },
             Package {
                 name: "p1".to_string(),
@@ -502,6 +606,7 @@ mod tests {
                 },
                 arch: None,
                 filepath: None,
+                area: None,
             },
             Package {
                 name: "p1".to_string(),
@@ -510,6 +615,7 @@ mod tests {
                 },
                 arch: None,
                 filepath: None,
+                area: None,
             },
             Package {
                 name: "p1".to_string(),
@@ -518,6 +624,7 @@ mod tests {
                 },
                 arch: None,
                 filepath: None,
+                area: None,
             },
             Package {
                 name: "p1".to_string(),
@@ -526,6 +633,7 @@ mod tests {
                 },
                 arch: None,
                 filepath: None,
+                area: None,
             },
         ];
 
