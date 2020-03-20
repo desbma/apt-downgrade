@@ -519,6 +519,10 @@ pub fn get_remote_package_versions(
 ) -> Result<Vec<Package>, Box<dyn error::Error>> {
     let mut packages = Vec::new();
 
+    // Note: The API at https://sources.debian.org/doc/api/ is crappy and incomplete
+    // Parse https://packages.debian.org/sid/libreoffice instead?
+    // or just use http://ftp.debian.org/debian/pool/main/libr/libreoffice/ ?
+
     let url = format!("https://sources.debian.org/api/src/{}/", package_name);
     //println!("{}", url);
     let json: JsonPackageInfo = reqwest::blocking::get(&url)?.error_for_status()?.json()?;
