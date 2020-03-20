@@ -464,7 +464,7 @@ pub fn get_cache_package_versions(
                 .next()
                 .ok_or_else(|| SimpleError::new(format!("Unexpected package filename: {}", path)))?
                 .split('.')
-                .nth(0)
+                .next()
                 .ok_or_else(|| SimpleError::new(format!("Unexpected package filename: {}", path)))?
                 .to_string();
             let version = tokens
