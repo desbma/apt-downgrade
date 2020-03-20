@@ -6,7 +6,7 @@ apt-downgrade
 
 Downgrade Debian packages safely
 
-** This tool is a work in progress, not ready to be used yet. **
+**This tool is a work in progress, not ready to be used yet.**
 
 
 ## Features
