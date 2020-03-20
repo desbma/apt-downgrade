@@ -228,6 +228,7 @@ fn download_package(package: &mut Package, apt_env: &AptEnv) -> Result<(), Box<d
         if response.status() == StatusCode::NOT_FOUND {
             continue;
         }
+        response.error_for_status_ref()?;
         let mut target_file = File::create(&filepath)?;
         copy(&mut response, &mut target_file)?;
         package.filepath = Some(
@@ -519,7 +520,8 @@ pub fn get_remote_package_versions(
     let mut packages = Vec::new();
 
     let url = format!("https://sources.debian.org/api/src/{}/", package_name);
-    let json: JsonPackageInfo = reqwest::blocking::get(&url)?.json()?;
+    //println!("{}", url);
+    let json: JsonPackageInfo = reqwest::blocking::get(&url)?.error_for_status()?.json()?;
 
     for json_version in json.versions {
         packages.push(Package {
