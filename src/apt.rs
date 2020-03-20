@@ -203,7 +203,7 @@ fn download_package(package: &mut Package, apt_env: &AptEnv) -> Result<(), Box<d
         let filename = format!(
             "{}_{}_{}.deb",
             package.name,
-            package.version.string.split(":").nth(1).unwrap(), // TODO why?
+            package.version.string.split(':').nth(1).unwrap(), // TODO why?
             arch,
         );
         let filepath = cache_dir.join(&filename);
