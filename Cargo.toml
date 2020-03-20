@@ -14,6 +14,8 @@ directories = "2.0"
 glob = "0.3"
 itertools = "0.8"
 lazy_static = "1.4"
-reqwest = {version = "0.10", features = ["blocking", "json"]}
-serde = { version = "1.0", features = ["derive"] }
+log = { version = "0.4", features = ["max_level_off", "release_max_level_off"] }
+reqwest = {version = "0.10", features = ["blocking"]}
+scraper = "0.11"
+stderrlog = "0.4"
 simple-error = "0.2"

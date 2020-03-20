@@ -1,11 +1,13 @@
 use std::collections::VecDeque;
-use std::io::{self, Write};
 
 use clap::{App, Arg};
 use itertools::join;
+use stderrlog::ColorChoice;
 
 #[macro_use]
 extern crate lazy_static;
+#[macro_use]
+extern crate log;
 
 mod apt;
 
@@ -42,12 +44,34 @@ fn parse_cl_args() -> CLArgs {
                 .long("dry-run")
                 .help("Only display install command, but do not install anything"),
         )
+        .arg(
+            Arg::with_name("verbosity")
+                .short("v")
+                .multiple(true)
+                .help("Increase message verbosity"),
+        )
+        .arg(
+            Arg::with_name("quiet")
+                .short("q")
+                .help("Silence all output"),
+        )
         .get_matches();
 
     // Post Clap parsing
     let package_name = matches.value_of("PACKAGE_NAME").unwrap().to_string();
     let package_version = matches.value_of("PACKAGE_VERSION").unwrap();
     let dry_run = matches.is_present("DRY_RUN");
+    let verbose = matches.occurrences_of("verbosity") as usize;
+    let quiet = matches.is_present("quiet");
+
+    // Init logging
+    stderrlog::new()
+        .module(module_path!())
+        .color(ColorChoice::Auto)
+        .quiet(quiet)
+        .verbosity(verbose)
+        .init()
+        .unwrap();
 
     CLArgs {
         package_name,
@@ -73,8 +97,7 @@ fn main() {
     });
     let mut to_install: Vec<apt::Package> = Vec::new();
 
-    print!("Analyzing dependencies...");
-    io::stdout().flush().unwrap();
+    info!("Analyzing dependencies...");
 
     // Resolve packages to install
     let mut progress = 0;
@@ -83,16 +106,16 @@ fn main() {
         let installed_package = apt::get_installed_version(&dependency.package_name, &apt::APT_ENV);
         let mut package_candidates =
             apt::get_cache_package_versions(&dependency.package_name, &apt::APT_ENV).unwrap();
-        package_candidates
-            .extend(apt::get_remote_package_versions(&dependency.package_name).unwrap());
+        package_candidates.extend(
+            apt::get_remote_package_versions(&dependency.package_name, &apt::APT_ENV).unwrap(),
+        );
 
         let mut resolved_package =
             apt::resolve_dependency(&dependency, package_candidates, &installed_package)
                 .unwrap_or_else(|| panic!("Unable to resolve dependency {}", dependency));
 
         progress += 1;
-        print!("\rAnalyzing {} dependencies...", progress);
-        io::stdout().flush().unwrap();
+        info!("Analyzing {} dependencies...", progress);
 
         // Already in install queue?
         if to_install.contains(&resolved_package) {
@@ -107,21 +130,20 @@ fn main() {
         }
 
         // Get package dependencies
-        let deps = apt::get_dependencies(&mut resolved_package, &apt::APT_ENV).unwrap();
+        let deps = apt::get_dependencies(&mut resolved_package).unwrap();
         to_resolve.extend(deps);
 
         // Add to install queue
         to_install.push(resolved_package.clone());
     }
-    println!();
 
     // Install
     if to_install.is_empty() {
-        println!("Nothing to do");
+        info!("Nothing to do");
     } else {
         let install_cmdline = apt::build_install_cmdline(to_install);
         if cl_args.dry_run {
-            println!("Run:\n{}", join(install_cmdline, " "));
+            info!("Run:\n{}", join(install_cmdline, " "));
         } else {
             unimplemented!();
         }

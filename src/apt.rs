@@ -12,8 +12,7 @@ use std::process::{Command, Stdio};
 use directories::ProjectDirs;
 use glob::glob;
 use itertools::join;
-use reqwest::StatusCode;
-use serde::Deserialize;
+use scraper::{Html, Selector};
 use simple_error::SimpleError;
 
 /// Package version with comparison traits
@@ -51,7 +50,7 @@ pub struct Package {
 
     pub filepath: Option<String>,
 
-    pub area: Option<String>,
+    pub url: Option<String>,
 }
 
 /// Dependency version relation
@@ -113,6 +112,7 @@ impl fmt::Display for PackageDependency {
 pub struct AptEnv {
     arch: String,
     cache_dir: String,
+    // TODO add distro & release
 }
 
 lazy_static! {
@@ -189,72 +189,45 @@ impl error::Error for CommandError {
     }
 }
 
-fn download_package(package: &mut Package, apt_env: &AptEnv) -> Result<(), Box<dyn error::Error>> {
-    // TODO mirror rotation?
-
+fn download_package(package: &mut Package) -> Result<(), Box<dyn error::Error>> {
     // Build target dir
     let dirs = ProjectDirs::from("", "Desbma", "APT Downgrade")
         .ok_or_else(|| SimpleError::new("Unable to compute cache dir"))?;
     let cache_dir = dirs.cache_dir();
     fs::create_dir_all(cache_dir)?;
 
-    for arch in &[apt_env.arch.clone(), "all".to_string(), "any".to_string()] {
-        // Build target filepath
-        let filename = format!(
-            "{}_{}_{}.deb",
-            package.name,
-            package.version.string.split(':').nth(1).unwrap(), // TODO why?
-            arch,
-        );
-        let filepath = cache_dir.join(&filename);
+    // Build target filepath
+    let url = package.url.as_ref().unwrap();
+    let filename = url
+        .rsplit('/')
+        .next()
+        .ok_or_else(|| SimpleError::new("Unable to extract filename from URL"))?;
+    let filepath = cache_dir.join(&filename);
 
-        // Build url
-        let subdir = if package.name.starts_with("lib") {
-            String::from_iter(package.name.chars().take(4))
-        } else {
-            package.name.chars().next().unwrap().to_string()
-        };
-        let url = format!(
-            "http://ftp.debian.org/debian/pool/{}/{}/{}/{}",
-            package.area.as_ref().unwrap(),
-            subdir,
-            package.name,
-            filename
-        );
+    // Download
+    debug!("Downloading {:?} to {:?}", url, filepath);
+    let mut response = reqwest::blocking::get(url)?.error_for_status()?;
+    let mut target_file = File::create(&filepath)?;
+    copy(&mut response, &mut target_file)?;
+    package.filepath = Some(
+        filepath
+            .into_os_string()
+            .into_string()
+            .or_else(|_| Err(SimpleError::new("Unexpected filename")))?,
+    );
 
-        // Download
-        println!("Downloading {:?} to {:?}", url, filepath);
-        let mut response = reqwest::blocking::get(&url)?;
-        if response.status() == StatusCode::NOT_FOUND {
-            continue;
-        }
-        response.error_for_status_ref()?;
-        let mut target_file = File::create(&filepath)?;
-        copy(&mut response, &mut target_file)?;
-        package.filepath = Some(
-            filepath
-                .into_os_string()
-                .into_string()
-                .or_else(|_| Err(SimpleError::new("Unexpected filename")))?,
-        );
-        package.arch = Some(arch.to_string());
-
-        // All good
-        return Ok(());
-    }
-
-    Err(Box::new(SimpleError::new("Unable to download package")))
+    // All good
+    Ok(())
 }
 
 /// Get dependencies for a package
 pub fn get_dependencies(
     mut package: &mut Package,
-    apt_env: &AptEnv,
 ) -> Result<Vec<PackageDependency>, Box<dyn error::Error>> {
     let mut deps = Vec::new();
 
     if package.filepath.is_none() {
-        download_package(&mut package, &apt_env)?;
+        download_package(&mut package)?;
     }
 
     let deb_filepath = package.filepath.as_ref().unwrap();
@@ -428,7 +401,7 @@ pub fn get_installed_version(package_name: &str, apt_env: &AptEnv) -> Option<Pac
         },
         arch: Some(package_arch.to_string()),
         filepath: Some(format!("{}{}", apt_env.cache_dir, package_filename)),
-        area: None,
+        url: None,
     })
 }
 
@@ -484,7 +457,7 @@ pub fn get_cache_package_versions(
                         .into_string()
                         .or_else(|_| Err(SimpleError::new("Unable to convert OS string")))?,
                 ),
-                area: None,
+                url: None,
             });
         }
     }
@@ -495,51 +468,65 @@ pub fn get_cache_package_versions(
     Ok(versions)
 }
 
-#[derive(Deserialize, Debug)]
-struct JsonPackageInfo {
-    package: String,
-    path: String,
-    pathl: Vec<Vec<String>>,
-    suite: String,
-    #[serde(rename = "type")]
-    type_: String,
-    versions: Vec<JsonPackageVersionInfo>,
-}
-
-#[derive(Deserialize, Debug)]
-struct JsonPackageVersionInfo {
-    area: String,
-    suites: Vec<String>,
-    version: String,
-}
-
 /// Get all versions of a package from remote API
 pub fn get_remote_package_versions(
     package_name: &str,
+    apt_env: &AptEnv,
 ) -> Result<Vec<Package>, Box<dyn error::Error>> {
     let mut packages = Vec::new();
 
-    // Note: The API at https://sources.debian.org/doc/api/ is crappy and incomplete
-    // Parse https://packages.debian.org/sid/libreoffice instead?
-    // or just use http://ftp.debian.org/debian/pool/main/libr/libreoffice/ ?
+    // Build URL
+    let subdir = if package_name.starts_with("lib") {
+        String::from_iter(package_name.chars().take(4))
+    } else {
+        package_name.chars().next().unwrap().to_string()
+    };
+    // TODO choose index URL from distro
+    let index_url = format!(
+        "http://ftp.debian.org/debian/pool/main/{}/{}/",
+        subdir, package_name
+    );
 
-    let url = format!("https://sources.debian.org/api/src/{}/", package_name);
-    //println!("{}", url);
-    let json: JsonPackageInfo = reqwest::blocking::get(&url)?.error_for_status()?.json()?;
+    // Download
+    debug!("GET {}", index_url);
+    let html = reqwest::blocking::get(&index_url)?
+        .error_for_status()?
+        .text()?;
 
-    for json_version in json.versions {
+    // Parse
+    let document = Html::parse_document(&html);
+    let selector = Selector::parse("a").unwrap();
+    let filename_prefix = format!("{}_", package_name);
+    let arch_whitelist = [&apt_env.arch, "all", "any"];
+    for filename in document
+        .select(&selector)
+        .map(|e| e.value().attr("href").unwrap())
+        .filter(|u| u.starts_with(&filename_prefix) && u.ends_with(".deb"))
+    {
+        let filename_noext = Path::new(filename)
+            .file_stem()
+            .unwrap()
+            .to_os_string()
+            .into_string()
+            .unwrap();
+        let mut tokens = filename_noext.rsplit('_');
+        let arch = tokens.next().unwrap();
+        if !arch_whitelist.contains(&arch) {
+            continue;
+        }
+        let version = tokens.next().unwrap();
         packages.push(Package {
             name: package_name.to_string(),
             version: PackageVersion {
-                string: json_version.version,
+                string: version.to_string(),
             },
-            arch: None,
+            arch: Some(arch.to_string()),
             filepath: None,
-            area: Some(json_version.area),
+            url: Some(format!("{}{}", index_url, filename)),
         });
     }
 
-    // GET https://sources.debian.org/api/info/package/davfs2/1.5.2-1/
+    println!();
 
     Ok(packages)
 }
@@ -574,7 +561,7 @@ mod tests {
                 },
                 arch: None,
                 filepath: Some("/p1".to_string()),
-                area: None,
+                url: None,
             },
             Package {
                 name: "package2".to_string(),
@@ -583,7 +570,7 @@ mod tests {
                 },
                 arch: None,
                 filepath: Some("/p2".to_string()),
-                area: None,
+                url: None,
             },
         ];
         assert_eq!(
@@ -609,7 +596,7 @@ mod tests {
                 },
                 arch: None,
                 filepath: None,
-                area: None,
+                url: None,
             },
             Package {
                 name: "p1".to_string(),
@@ -618,7 +605,7 @@ mod tests {
                 },
                 arch: None,
                 filepath: None,
-                area: None,
+                url: None,
             },
             Package {
                 name: "p1".to_string(),
@@ -627,7 +614,7 @@ mod tests {
                 },
                 arch: None,
                 filepath: None,
-                area: None,
+                url: None,
             },
             Package {
                 name: "p1".to_string(),
@@ -636,7 +623,7 @@ mod tests {
                 },
                 arch: None,
                 filepath: None,
-                area: None,
+                url: None,
             },
             Package {
                 name: "p1".to_string(),
@@ -645,7 +632,7 @@ mod tests {
                 },
                 arch: None,
                 filepath: None,
-                area: None,
+                url: None,
             },
         ];
 
@@ -810,5 +797,26 @@ mod tests {
             resolve_dependency(&dependency, candidates.clone(), &installed_package),
             Some(candidates[0].clone())
         );
+    }
+
+    #[test]
+    fn test_get_remote_package_versions() {
+        let apt_env = AptEnv {
+            arch: "amd64".to_string(),
+            cache_dir: "/tmp".to_string(),
+        };
+        let r = get_remote_package_versions("libreoffice", &apt_env);
+        assert!(r.is_ok());
+        let packages = r.unwrap();
+        assert!(packages.len() > 1);
+        for package in packages {
+            assert_eq!(package.name, "libreoffice");
+            assert!(package.arch.is_some());
+            assert!(package.filepath.is_none());
+            assert!(package.url.is_some());
+            let url = package.url.unwrap();
+            assert!(url.starts_with("http"));
+            assert!(url.ends_with(".deb"));
+        }
     }
 }
