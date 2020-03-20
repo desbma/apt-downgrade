@@ -4,6 +4,7 @@ use std::fmt;
 use std::fs;
 use std::fs::File;
 use std::io::{copy, BufRead};
+use std::iter::FromIterator;
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -202,22 +203,27 @@ fn download_package(package: &mut Package, apt_env: &AptEnv) -> Result<(), Box<d
         let filename = format!(
             "{}_{}_{}.deb",
             package.name,
-            package.version.string.replace(":", "%3a"), // TODO better urlescape
+            package.version.string.split(":").nth(1).unwrap(), // TODO why?
             arch,
         );
         let filepath = cache_dir.join(&filename);
 
         // Build url
+        let subdir = if package.name.starts_with("lib") {
+            String::from_iter(package.name.chars().take(4))
+        } else {
+            package.name.chars().next().unwrap().to_string()
+        };
         let url = format!(
             "http://ftp.debian.org/debian/pool/{}/{}/{}/{}",
             package.area.as_ref().unwrap(),
-            package.name.chars().next().unwrap(),
+            subdir,
             package.name,
             filename
         );
 
         // Download
-        println!("Downloading {} to {:?}", url, filepath);
+        println!("Downloading {:?} to {:?}", url, filepath);
         let mut response = reqwest::blocking::get(&url)?;
         if response.status() == StatusCode::NOT_FOUND {
             continue;
