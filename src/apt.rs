@@ -189,8 +189,6 @@ impl error::Error for CommandError {
 }
 
 fn download_package(package: &mut Package) -> Result<(), Box<dyn error::Error>> {
-    // TODO don't download if file already exists + download to .tmp first for atomic creation
-
     // Build target dir
     let dirs = ProjectDirs::from("", "Desbma", "APT Downgrade")
         .ok_or_else(|| SimpleError::new("Unable to compute cache dir"))?;
@@ -203,15 +201,24 @@ fn download_package(package: &mut Package) -> Result<(), Box<dyn error::Error>> 
         .rsplit('/')
         .next()
         .ok_or_else(|| SimpleError::new("Unable to extract filename from URL"))?;
-    let filepath = cache_dir.join(&filename);
+    let filepath_final = cache_dir.join(&filename);
 
-    // Download
-    debug!("Downloading {:?} to {:?}", url, filepath);
-    let mut response = reqwest::blocking::get(url)?.error_for_status()?;
-    let mut target_file = File::create(&filepath)?;
-    copy(&mut response, &mut target_file)?;
+    if filepath_final.exists() {
+        info!("Got {:?} from cache in {:?}", url, filepath_final);
+    } else {
+        // Download
+        info!("Downloading {:?} to {:?}", url, filepath_final);
+        let mut response = reqwest::blocking::get(url)?.error_for_status()?;
+        let filepath_tmp = cache_dir.join(format!("{}.tmp", filename));
+        let mut target_file = File::create(&filepath_tmp)?;
+        copy(&mut response, &mut target_file)?;
+        drop(target_file);
+        fs::rename(&filepath_tmp, &filepath_final)?;
+    }
+
+    // Set filepath
     package.filepath = Some(
-        filepath
+        filepath_final
             .into_os_string()
             .into_string()
             .or_else(|_| Err(SimpleError::new("Unexpected filename")))?,
@@ -268,7 +275,12 @@ pub fn get_dependencies(
         .split(',')
         .map(|l| l.trim_start())
     {
-        let mut package_desc_tokens = package_desc.split(' ');
+        let mut package_desc_tokens = package_desc
+            .split('|')  // TODO handle 'or' constraints
+            .next()
+            .ok_or_else(|| SimpleError::new("Unexpected apt-cache output"))?
+            .trim_end()
+            .split(' ');
         let package_name = package_desc_tokens
             .next()
             .ok_or_else(|| SimpleError::new("Unexpected apt-cache output"))?
@@ -294,6 +306,9 @@ pub fn get_dependencies(
                     .next()
                     .ok_or_else(|| SimpleError::new("Unexpected apt-cache output"))?;
                 &package_version_raw[0..&package_version_raw.len() - 1]
+                    .rsplit(':')
+                    .next()
+                    .ok_or_else(|| SimpleError::new("Unexpected apt-cache output"))?
             }
         };
 
@@ -370,7 +385,14 @@ pub fn get_installed_version(package_name: &str, apt_env: &AptEnv) -> Option<Pac
         .lines()
         .filter_map(Result::ok)
         .find(|l| l.starts_with(line_prefix))?;
-    let package_version = package_version_line.split_at(line_prefix.len()).1;
+    let package_version = package_version_line
+        .split_at(line_prefix.len())
+        .1
+        .rsplit(':')
+        .next()?;
+    if package_version == "(none)" {
+        return None;
+    }
 
     // Get filename
     let output = Command::new("apt-cache")
@@ -394,6 +416,11 @@ pub fn get_installed_version(package_name: &str, apt_env: &AptEnv) -> Option<Pac
     let line_prefix = "Architecture: ";
     let package_arch_line = lines.iter().find(|l| l.starts_with(line_prefix))?;
     let package_arch = package_arch_line.split_at(line_prefix.len()).1;
+
+    debug!(
+        "Installed version for {}: {} ({})",
+        package_name, package_version, package_arch
+    );
 
     Some(Package {
         name: package_name.to_string(),
@@ -441,11 +468,15 @@ pub fn get_cache_package_versions(
                 .next()
                 .ok_or_else(|| SimpleError::new(format!("Unexpected package filename: {}", path)))?
                 .to_string();
-            let version = tokens
+            let mut version = tokens
                 .next()
                 .ok_or_else(|| SimpleError::new(format!("Unexpected package filename: {}", path)))?
-                .to_string()
                 .replace("%3a", ":"); // TODO better urlescape
+            version = version
+                .rsplit(':')
+                .next()
+                .ok_or_else(|| SimpleError::new(format!("Unexpected package filename: {}", path)))?
+                .to_string();
             debug!("Local version for {}: {} ({})", package_name, version, arch);
             versions.push(Package {
                 name: package_name.to_string(),
