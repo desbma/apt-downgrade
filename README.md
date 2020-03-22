@@ -27,6 +27,7 @@ cargo build --release
 sudo cargo install --path . --root /usr/local
 ```
 
+
 ## Usage
 
 To downgrade the `chromium` package to version `78.0.3904.108-1`:
@@ -36,14 +37,6 @@ apt-downgrade chromium 78.0.3904.108-1
 ```
 
 Run `apt-downgrade -h` to get full command line help.
-
-
-## TODO
-
-* thread pool for faster execution
-* suggest package versions from local cache
-* download missing packages if not in local cache
-* unit tests
 
 
 ## License

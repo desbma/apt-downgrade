@@ -4,7 +4,6 @@ use std::fmt;
 use std::fs;
 use std::fs::File;
 use std::io::{copy, BufRead};
-use std::iter::FromIterator;
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -471,6 +470,39 @@ pub fn get_cache_package_versions(
     Ok(versions)
 }
 
+pub fn get_package_index_url(
+    package_name: &str,
+    apt_env: &AptEnv,
+) -> Result<String, Box<dyn error::Error>> {
+    // TODO choose URL from distro
+    let mirrors_url = format!(
+        "https://packages.debian.org/sid/{}/{}/download",
+        apt_env.arch, package_name
+    );
+
+    // Download
+    debug!("GET {}", mirrors_url);
+    let html = reqwest::blocking::get(&mirrors_url)?
+        .error_for_status()?
+        .text()?;
+
+    // Parse
+    let document = Html::parse_document(&html);
+    let selector = Selector::parse("a").unwrap();
+    let mut url = document
+        .select(&selector)
+        .map(|e| e.value().attr("href").unwrap())
+        .find(|u| u.starts_with("http://ftp.debian.org/debian/pool/"))
+        .ok_or_else(|| SimpleError::new("Unexpected HTML"))?
+        .rsplitn(2, '/')
+        .nth(1)
+        .ok_or_else(|| SimpleError::new("Unexpected HTML"))?
+        .to_string();
+    url.push('/');
+
+    Ok(url)
+}
+
 /// Get all versions of a package from remote API
 pub fn get_remote_package_versions(
     package_name: &str,
@@ -478,17 +510,13 @@ pub fn get_remote_package_versions(
 ) -> Result<Vec<Package>, Box<dyn error::Error>> {
     let mut packages = Vec::new();
 
-    // Build URL
-    let subdir = if package_name.starts_with("lib") {
-        String::from_iter(package_name.chars().take(4))
-    } else {
-        package_name.chars().next().unwrap().to_string()
-    };
-    // TODO choose index URL from distro
-    let index_url = format!(
-        "http://ftp.debian.org/debian/pool/main/{}/{}/",
-        subdir, package_name
-    );
+    // Notes:
+    // * using directly index like http://ftp.debian.org/debian/pool/main/libr/libreoffice/
+    // is not reliable because directory is sometimes hard to deduce from package (ie. libasound2 is in alsa-lib dir)
+    // * the API at https://sources.debian.org/doc/api/ is incomplete so useless for our needs
+
+    // Get index URL
+    let index_url = get_package_index_url(package_name, apt_env)?;
 
     // Download
     debug!("GET {}", index_url);
@@ -823,5 +851,27 @@ mod tests {
             assert!(url.starts_with("http"));
             assert!(url.ends_with(".deb"));
         }
+    }
+
+    #[test]
+    fn test_get_package_index_url() {
+        let apt_env = AptEnv {
+            arch: "amd64".to_string(),
+            cache_dir: "/tmp".to_string(),
+        };
+
+        let r = get_package_index_url("libreoffice", &apt_env);
+        assert!(r.is_ok());
+        assert_eq!(
+            r.unwrap(),
+            "http://ftp.debian.org/debian/pool/main/libr/libreoffice/"
+        );
+
+        let r = get_package_index_url("libasound2", &apt_env);
+        assert!(r.is_ok());
+        assert_eq!(
+            r.unwrap(),
+            "http://ftp.debian.org/debian/pool/main/a/alsa-lib/"
+        );
     }
 }
