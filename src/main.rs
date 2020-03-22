@@ -115,7 +115,7 @@ fn main() {
                 .unwrap_or_else(|| panic!("Unable to resolve dependency {}", dependency));
 
         progress += 1;
-        info!("Analyzing {} dependencies...", progress);
+        info!("Analyzing {} dependencie(s)...", progress);
 
         // Already in install queue?
         if to_install.contains(&resolved_package) {
