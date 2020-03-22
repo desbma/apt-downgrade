@@ -518,7 +518,10 @@ pub fn get_remote_package_versions(
             continue;
         }
         let version = tokens.next().unwrap();
-        debug!("Remote version for {}: {} ({})", package_name, version, arch);
+        debug!(
+            "Remote version for {}: {} ({})",
+            package_name, version, arch
+        );
         packages.push(Package {
             name: package_name.to_string(),
             version: PackageVersion {
