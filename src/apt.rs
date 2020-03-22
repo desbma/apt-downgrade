@@ -526,8 +526,6 @@ pub fn get_remote_package_versions(
         });
     }
 
-    println!();
-
     Ok(packages)
 }
 

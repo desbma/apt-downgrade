@@ -61,7 +61,7 @@ fn parse_cl_args() -> CLArgs {
     let package_name = matches.value_of("PACKAGE_NAME").unwrap().to_string();
     let package_version = matches.value_of("PACKAGE_VERSION").unwrap();
     let dry_run = matches.is_present("DRY_RUN");
-    let verbose = matches.occurrences_of("verbosity") as usize;
+    let verbose = 2 + matches.occurrences_of("verbosity") as usize;
     let quiet = matches.is_present("quiet");
 
     // Init logging
