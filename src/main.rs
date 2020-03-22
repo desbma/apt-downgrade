@@ -97,6 +97,7 @@ fn main() {
         }],
     });
     let mut to_install: Vec<apt::Package> = Vec::new();
+    let mut html_cache: HashMap<String, String> = HashMap::new();
 
     info!("Analyzing dependencies...");
 
@@ -107,8 +108,10 @@ fn main() {
         let installed_package = apt::get_installed_version(&dependency.package_name, &apt_env);
         let mut package_candidates =
             apt::get_cache_package_versions(&dependency.package_name, &apt_env).unwrap();
-        package_candidates
-            .extend(apt::get_remote_package_versions(&dependency.package_name, &apt_env).unwrap());
+        package_candidates.extend(
+            apt::get_remote_package_versions(&dependency.package_name, &mut html_cache, &apt_env)
+                .unwrap(),
+        );
 
         let mut resolved_package =
             apt::resolve_dependency(&dependency, package_candidates, &installed_package)

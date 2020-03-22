@@ -1,4 +1,6 @@
 use std::cmp::{Ordering, Reverse};
+use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 use std::error;
 use std::fmt;
 use std::fs;
@@ -533,6 +535,7 @@ pub fn get_package_index_url(
 /// Get all versions of a package from remote API
 pub fn get_remote_package_versions(
     package_name: &str,
+    html_cache: &mut HashMap<String, String>,
     apt_env: &AptEnv,
 ) -> Result<Vec<Package>, Box<dyn error::Error>> {
     let mut packages = Vec::new();
@@ -546,10 +549,20 @@ pub fn get_remote_package_versions(
     let index_url = get_package_index_url(package_name, apt_env)?;
 
     // Download
-    debug!("GET {}", index_url);
-    let html = reqwest::blocking::get(&index_url)?
-        .error_for_status()?
-        .text()?;
+    let html = match html_cache.entry(index_url.clone()) {
+        Entry::Occupied(h) => {
+            trace!("Got {} from HTML cache", index_url);
+            h.get().clone()
+        }
+        Entry::Vacant(e) => {
+            debug!("GET {}", index_url);
+            let html = reqwest::blocking::get(&index_url)?
+                .error_for_status()?
+                .text()?;
+            e.insert(html.clone());
+            html
+        }
+    };
 
     // Parse
     let document = Html::parse_document(&html);
