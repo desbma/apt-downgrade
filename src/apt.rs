@@ -190,6 +190,8 @@ impl error::Error for CommandError {
 }
 
 fn download_package(package: &mut Package) -> Result<(), Box<dyn error::Error>> {
+    // TODO don't download if file already exists + download to .tmp first for atomic creation
+
     // Build target dir
     let dirs = ProjectDirs::from("", "Desbma", "APT Downgrade")
         .ok_or_else(|| SimpleError::new("Unable to compute cache dir"))?;
