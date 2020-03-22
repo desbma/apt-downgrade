@@ -13,7 +13,6 @@ deb-version = "0.1"
 directories = "2.0"
 glob = "0.3"
 itertools = "0.8"
-lazy_static = "1.4"
 log = { version = "0.4", features = ["max_level_trace", "release_max_level_trace"] }
 reqwest = {version = "0.10", features = ["blocking"]}
 scraper = "0.11"

@@ -1,11 +1,9 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use clap::{App, Arg};
 use itertools::join;
 use stderrlog::ColorChoice;
 
-#[macro_use]
-extern crate lazy_static;
 #[macro_use]
 extern crate log;
 
@@ -86,6 +84,9 @@ fn main() {
     // Parse args
     let cl_args = parse_cl_args();
 
+    // Get global apt env
+    let apt_env = apt::read_apt_env().expect("Unable to read APT environment");
+
     // Initial queue states
     let mut to_resolve: VecDeque<apt::PackageDependency> = VecDeque::new();
     to_resolve.push_back(apt::PackageDependency {
@@ -103,12 +104,11 @@ fn main() {
     let mut progress = 0;
     while let Some(dependency) = to_resolve.pop_front() {
         // Resolve version
-        let installed_package = apt::get_installed_version(&dependency.package_name, &apt::APT_ENV);
+        let installed_package = apt::get_installed_version(&dependency.package_name, &apt_env);
         let mut package_candidates =
-            apt::get_cache_package_versions(&dependency.package_name, &apt::APT_ENV).unwrap();
-        package_candidates.extend(
-            apt::get_remote_package_versions(&dependency.package_name, &apt::APT_ENV).unwrap(),
-        );
+            apt::get_cache_package_versions(&dependency.package_name, &apt_env).unwrap();
+        package_candidates
+            .extend(apt::get_remote_package_versions(&dependency.package_name, &apt_env).unwrap());
 
         let mut resolved_package =
             apt::resolve_dependency(&dependency, package_candidates, &installed_package)

@@ -114,12 +114,8 @@ pub struct AptEnv {
     // TODO add distro & release
 }
 
-lazy_static! {
-    pub static ref APT_ENV: AptEnv = read_apt_env().expect("Unable to read APT environment");
-}
-
 /// Read APT environment values
-fn read_apt_env() -> Result<AptEnv, Box<dyn error::Error>> {
+pub fn read_apt_env() -> Result<AptEnv, Box<dyn error::Error>> {
     let output = Command::new("apt-config")
         .args(vec![
             "shell",
@@ -276,7 +272,7 @@ pub fn get_dependencies(
         .map(|l| l.trim_start())
     {
         let mut package_desc_tokens = package_desc
-            .split('|')  // TODO handle 'or' constraints
+            .split('|') // TODO handle 'or' constraints
             .next()
             .ok_or_else(|| SimpleError::new("Unexpected apt-cache output"))?
             .trim_end()
