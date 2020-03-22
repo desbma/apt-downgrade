@@ -1,4 +1,6 @@
-use std::collections::{HashMap, VecDeque};
+use std::cmp::Reverse;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::iter::FromIterator;
 
 use clap::{App, Arg};
 use itertools::join;
@@ -104,15 +106,32 @@ fn main() {
     // Resolve packages to install
     let mut progress = 0;
     while let Some(dependency) = to_resolve.pop_front() {
-        // Resolve version
+        // Get candidates
         let installed_package = apt::get_installed_version(&dependency.package_name, &apt_env);
         let mut package_candidates =
             apt::get_cache_package_versions(&dependency.package_name, &apt_env).unwrap();
-        package_candidates.extend(
-            apt::get_remote_package_versions(&dependency.package_name, &mut html_cache, &apt_env)
-                .unwrap(),
-        );
+        match apt::get_remote_package_versions(&dependency.package_name, &mut html_cache, &apt_env)
+        {
+            Ok(new_candidates) => {
+                let local_versions: HashSet<apt::PackageVersion> =
+                    HashSet::from_iter(package_candidates.iter().map(|c| c.version.clone()));
+                package_candidates.extend(
+                    new_candidates
+                        .iter()
+                        .filter(|c| !local_versions.contains(&c.version))
+                        .cloned(),
+                );
+            }
+            Err(e) => {
+                error!(
+                    "Failed to get remote dependencies for {}: {}",
+                    &dependency.package_name, e
+                );
+            }
+        };
 
+        // Resolve
+        package_candidates.sort_unstable_by_key(|d| Reverse(d.version.clone()));
         let mut resolved_package =
             apt::resolve_dependency(&dependency, package_candidates, &installed_package)
                 .unwrap_or_else(|| panic!("Unable to resolve dependency {}", dependency));

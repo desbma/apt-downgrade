@@ -1,4 +1,4 @@
-use std::cmp::{Ordering, Reverse};
+use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::error;
@@ -17,7 +17,7 @@ use scraper::{Html, Selector};
 use simple_error::SimpleError;
 
 /// Package version with comparison traits
-#[derive(Debug, Clone, Eq, PartialEq)]
+#[derive(Debug, Clone, Eq, Hash, PartialEq)]
 pub struct PackageVersion {
     pub string: String,
 }
@@ -493,9 +493,6 @@ pub fn get_cache_package_versions(
         }
     }
 
-    // Sort
-    versions.sort_unstable_by_key(|d| Reverse(d.version.clone()));
-
     Ok(versions)
 }
 
@@ -878,7 +875,8 @@ mod tests {
             arch: "amd64".to_string(),
             cache_dir: "/tmp".to_string(),
         };
-        let r = get_remote_package_versions("libreoffice", &apt_env);
+        let mut html_cache: HashMap<String, String> = HashMap::new();
+        let r = get_remote_package_versions("libreoffice", &mut html_cache, &apt_env);
         assert!(r.is_ok());
         let packages = r.unwrap();
         assert!(packages.len() > 1);
